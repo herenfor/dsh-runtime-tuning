@@ -72,7 +72,7 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 
 ## 配合 dsh-task-notify
 
-[dsh-task-notify](https://github.com/herenfor/dsh-task-notify) 的未发布版本能识别 `task_status`：声明 `waiting` 的一轮不发"完成"通知，等任务结束、模型声明 `done` 后再通知。两个插件各自独立，不装另一个也能用。
+[dsh-task-notify](https://github.com/herenfor/dsh-task-notify) 按 DSH 的后台任务事件判断：本次请求启动的任务还在跑时，结束的这一轮不发"完成"通知，等任务结束、模型处理完结果后再通知。它也认 `task_status` 里的 `waiting` 和 `services`。两个插件各自独立，不装另一个也能用。
 
 ## 日志
 
