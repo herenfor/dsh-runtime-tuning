@@ -58,6 +58,16 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 |---|---|---|
 | `timeout` | `1` | 提问后几秒返回 `pending`；`-1` 表示一直等，相当于原来的阻塞行为 |
 
+**secret-guard**
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `askGuard` | `true` | 拒绝向用户索要令牌、密码、API key 的 `ask_user_question` |
+| `callGuard` | `true` | 拒绝参数里带完整令牌的工具调用，以及 `gh auth token` |
+| `redact` | `true` | 把工具结果里的凭据替换成 `[REDACTED:…]` 再交给模型 |
+
+目前识别的凭据格式：GitHub 令牌（`github_pat_`、`ghp_`、`gho_`、`ghu_`、`ghs_`、`ghr_`）和 `sk-` 开头的 API key。用户直接在聊天框里粘贴的内容不经过工具，secret-guard 管不到。
+
 ## 配合 dsh-task-notify
 
 [dsh-task-notify](https://github.com/herenfor/dsh-task-notify) 的未发布版本能识别 `task_status`：声明 `waiting` 的一轮不发"完成"通知，等任务结束、模型声明 `done` 后再通知。两个插件各自独立，不装另一个也能用。

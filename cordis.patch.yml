@@ -8,3 +8,5 @@
       name: ./plugins/ask-nonblocking.mjs
       config:
         timeout: 1
+    - id: runtime-tuning-secret-guard
+      name: ./plugins/secret-guard.mjs
