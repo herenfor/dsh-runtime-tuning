@@ -2,6 +2,7 @@
 
 [![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.4-blue)](#使用环境)
+[![测试](https://github.com/herenfor/dsh-runtime-tuning/actions/workflows/test.yml/badge.svg)](https://github.com/herenfor/dsh-runtime-tuning/actions/workflows/test.yml)
 
 减少 DeepSeek Harness 在运行时白白等待的时间：模型不再用前台 sleep 或长时间阻塞把整轮对话卡住，后台任务的完成通知没来时有兜底唤醒，向你提问后也不再停下来干等。
 
