@@ -191,7 +191,22 @@ export function describeReply(content) {
   }
 }
 
-const promptText = (c) => 'Never block a turn waiting for a background job or with sleep. While a job runs, do independent work. ' +
+// 有硬保底时 task_status 只在两种情况下需要：任务会跑得比硬保底更久，或者它是故意留着的服务。
+// 真实长会话里模型几乎从不声明，新会话里声明又常常单独占一步；状态交给 runtime 按事实判断，声明只补充这两样信息。
+const BASE_PROMPT = 'Never block a turn waiting for a background job or with sleep, and do not check a job\'s log right after starting it: ' +
+  'you are notified in-session when it finishes. While jobs run, do independent work. ' +
+  'Put independent reads, checks and edits into one reply as parallel tool calls instead of one call per reply. '
+
+const optionalStatusText = (c) => 'When nothing else is left, end the turn even if jobs are still running and tell the user what is running. ' +
+  'The completion notice starts a new turn, and dsh-wait-guard wakes you after about ' + c.undeclaredMinutes + ' minutes if a job never reports back; ' +
+  'you do not need to declare anything for that. Call task_status only in two cases: a job you leave running will take longer than ' +
+  c.undeclaredMinutes + ' minutes (state "waiting" with waiting_for and expected_minutes), or a job is a service you leave running on purpose, ' +
+  'such as a dev server or a watcher (state "done" with its id in services).' +
+  (c.concludeTurn ? ' Make task_status the only tool call in the reply that carries your final message: that ends the turn directly.' : '')
+
+export const promptText = (c) => BASE_PROMPT + (c.undeclaredMinutes > 0 ? optionalStatusText(c) : requiredStatusText(c))
+
+const requiredStatusText = (c) =>
   'Before you end a turn, call task_status as your last tool call. ' +
   (c.concludeTurn ? 'Write your final message and call task_status in the same reply, as its only tool call: that ends the turn directly, so do not repeat the message afterwards. ' : '') +
   'Use state "done" when the request is finished or you only answered something. ' +
@@ -229,7 +244,9 @@ export function apply(ctx, config = {}) {
   try {
     ctx.tools.register({
       name: 'task_status',
-      description: 'Declare, as the last call of a turn, whether the user\'s task is done, waiting on background work, or waiting for the user\'s answer. ' +
+      description: (c.undeclaredMinutes > 0
+        ? `Optional. Use only when a background job you leave running will take longer than ${c.undeclaredMinutes} minutes, or to mark services you leave running on purpose. `
+        : 'Declare, as the last call of a turn, whether the user\'s task is done, waiting on background work, or waiting for the user\'s answer. ') +
         'Called as the only tool in the reply that carries your final message, it ends the turn directly. ' +
         'Waiting turns are resumed by the job-completion notice, or by a dsh-wait-guard backstop wake if that never arrives.',
       parameters: STATUS_PARAMETERS,

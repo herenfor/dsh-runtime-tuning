@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'wait-guard-'))
-const { apply } = await import('../plugins/wait-guard.mjs')
+const { apply, promptText } = await import('../plugins/wait-guard.mjs')
 
 function fakeHost(config) {
   const handlers = {}, tools = {}
@@ -46,4 +46,13 @@ test('同一步还有别的工具，或者 concludeTurn: false：不结束', asy
   const off = fakeHost({ concludeTurn: false })
   off.reply({ type: 'text', text: '已完成。' }, { type: 'tool-call', id: 'c1' })
   assert.equal((await off.call('c1', { state: 'done' })).concluded, false)
+})
+
+test('有硬保底时 task_status 是可选的；关掉硬保底就恢复每轮声明', () => {
+  const optional = promptText({ undeclaredMinutes: 30, concludeTurn: true })
+  assert.match(optional, /Call task_status only in two cases/)
+  assert.match(optional, /longer than 30 minutes/)
+  assert.match(optional, /parallel tool calls/)
+  assert.doesNotMatch(optional, /Before you end a turn, call task_status/)
+  assert.match(promptText({ undeclaredMinutes: 0, concludeTurn: true }), /Before you end a turn, call task_status/)
 })
