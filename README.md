@@ -1,114 +1,97 @@
-# DSH Runtime Tuning · 运行时优化插件
+# DSH Runtime Tuning
 
 [![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.4-blue)](#使用环境)
+[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.4-blue)](docs/configuration.md#使用环境)
 [![测试](https://github.com/herenfor/dsh-runtime-tuning/actions/workflows/test.yml/badge.svg)](https://github.com/herenfor/dsh-runtime-tuning/actions/workflows/test.yml)
 
-减少 DeepSeek Harness 在运行时白白等待的时间：模型不再用前台 sleep 或长时间阻塞把整轮对话卡住，后台任务的完成通知没来时有兜底唤醒，向你提问后也不再停下来干等。
+一个关于 agent 运行时的长期实验：从 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的真实会话记录里找出时间花在了哪里、哪些是白白浪费的，再尽量用插件把它修掉，并且每一项都用数据验证。
 
-这是一个社区插件，以 DSH bundle 的形式安装，里面包含两个子插件。
+这里既是一组可以安装的 DSH 插件，也是这个过程的记录。随着分析推进，插件会不断增加。
 
-## 功能
+## 起点：一份 9.7 小时的会话
 
-### wait-guard：不让等待卡住对话
+我把自己日常使用 DSH 的一份会话导出来，按事件逐条统计。这份会话有 119 轮对话、2347 次工具调用，跨度 9.7 小时，内容主要是一个项目的反复发行（测试、编译、归档、上传）。
 
-DSH 会在后台任务结束时通知模型（模型忙时插进下一步，空闲时开启新的一轮），系统提示词也要求"不要轮询、不要 sleep"，但模型常常不照做。wait-guard 在工具执行前强制执行这条规则：
+时间大致花在这些地方：
 
-- 拒绝前台超过 5 秒的 `sleep` / `Start-Sleep`，提示改用 `run_in_background: true`。
-- 拒绝顶层 agent 超过 15 秒的阻塞式 `job_output`（`wait: true`），提示先做别的事或结束这一轮。子代理不受限制。
-- 新增 `task_status` 工具，模型在一轮的最后声明状态：
-  - `done`：做完了，或者只是回答 / 提问；
-  - `waiting`：还有需要的后台任务在跑，同时给出 `waiting_for` 和 `expected_minutes`；
-  - `asking`：在等你回答。
-- **兜底唤醒**：声明 `waiting` 的一轮正常结束后开始计时。如果超过 2 × `expected_minutes` 还没有新一轮（比如任务卡死、完成通知没来），就唤醒模型去检查任务。
-  - 连续最多唤醒 2 次，你发一条消息后重新计数。
-  - 你按停止结束的一轮不计时：你叫停的事，插件不会再拉起来。
-
-### ask-nonblocking：提问不阻塞
-
-DSH 自带的 `ask_user_question` 已经实现了 `timed` 模式：超时后返回 `pending`，模型继续做不依赖这个回答的事；你之后的回答会作为插话送进来。但默认是阻塞的 `legacy` 模式，而且这个工具嵌在各个 agent preset 内部，profile 补丁改不到它的配置（见 [DSH 讨论 #8547](https://github.com/deepseek-ai/deepseek-harness/discussions/8547)）。
-
-ask-nonblocking 在每个顶层 agent 创建时，用宿主里同一份官方 `dsh-tool-ask-user` 注册一个 `timed` 版本，遮蔽 preset 里的阻塞版：
-
-- 默认 1 秒后返回 `pending`，模型继续工作，这一轮可以正常结束；
-- 你晚些时候的回答会开启新的一轮；
-- 必须等到回答才能继续的问题，模型可以在单次调用里传 `timeout: -1`。
-
-任何一步失败都只写日志，agent 保持原来的阻塞版提问。
-
-## 使用环境
-
-只在 DSH `0.2.1-rc.4` 的 `web` profile 下验证过，系统是 Windows 11 + WSL2，Node.js `22.23.4`。
-
-ask-nonblocking 依赖 DSH 的内部接口（`agent/created` 事件、`agent.ctx`，以及在宿主的 pnpm 目录里找到官方模块），DSH 升级后可能失效。失效时只是退回阻塞版提问，不会影响任务。
-
-`headless`、`sdk` 等 profile 暂不支持：wait-guard 会让模型结束一轮去等通知，没有人在看的运行环境不适合这样做。
-
-## 安装
-
-在 WSL 终端运行：
-
-```bash
-dsh plugin --profile web add github:herenfor/dsh-runtime-tuning
-```
-
-或者先克隆到本地，再用本地路径安装：
-
-```bash
-dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
-```
-
-安装后，等当前任务结束，再重启 DSH 并刷新浏览器页面。作者本机用的是 `link:` 方式。
-
-## 配置
-
-在 profile 的 `cordis.patch.yml`（比如 `~/.dsh/profiles/web/cordis.patch.yml`）里按 id 覆盖：
-
-```yaml
-- id: runtime-tuning-wait-guard
-  config:
-    backstopFactor: 3
-- id: runtime-tuning-ask-nonblocking
-  config:
-    timeout: 30
-```
-
-`config` 是整块替换的，没写的项使用默认值。可以用 `dsh --profile web --dump-config` 确认结果。
-
-**wait-guard**
-
-| 配置 | 默认值 | 说明 |
+| 去处 | 时间 | 备注 |
 |---|---|---|
-| `maxSleepSeconds` | `5` | 前台 sleep 超过这个秒数就拒绝 |
-| `maxBlockingWaitMs` | `15000` | 阻塞式 `job_output` 超过这个毫秒数就拒绝 |
-| `jobsDefaultWaitMs` | `30000` | `job_output` 没写 `timeout_ms` 时按这个值判断（DSH 的默认值） |
-| `topLevelOnly` | `true` | 只限制顶层 agent 的 `job_output` |
-| `wakeup` | `true` | 设为 `false` 时整个插件不生效。没有唤醒，单独拦截等待只会让任务停住 |
-| `backstopFactor` | `2` | 兜底唤醒在 `expected_minutes` 的几倍之后触发 |
-| `maxBackstopWakes` | `2` | 你没有发消息时，最多连续唤醒几次 |
-| `maxExpectedMinutes` | `240` | `expected_minutes` 的上限 |
+| 模型生成 | 约 4.3 小时 | 每步中位数约 6 秒 |
+| 阻塞式等待后台任务（`job_output wait: true`） | 约 100 分钟 | 152 次，最长一次 240 秒 |
+| 等人审批 | 约 58 分钟 | 24 次，最长一次 44.7 分钟 |
+| 提问后等人回答 | 约 79 分钟 | 这段时间模型什么也做不了 |
+| 前台 `sleep` | 约 20 分钟 | 33 次，比如 `sleep 90; echo waited` |
 
-**ask-nonblocking**
+几个值得注意的现象：
 
-| 配置 | 默认值 | 说明 |
+- 有工具调用的步骤里，**87% 只调用了一个工具**。每多一步，就多一次重读上下文和生成。
+- 同一个后台任务被反复查询，最多一个查了 13 次。
+- 模型会从文件里 grep 出 GitHub 令牌，再用 curl 调 API，令牌因此出现在命令行和日志里。
+
+## 发现一：机制都在，只是没人强制
+
+读了 DSH 的源码之后发现，DSH 其实已经做得不错：
+
+- 后台任务结束时会通知模型：模型忙时插进下一步，空闲时直接开启新的一轮；
+- 前台命令超时后不会被杀掉，而是转到后台；
+- 系统提示词里明确写了"不要轮询、不要 sleep"。
+
+问题在于模型并不总是照做：它还是会 `wait: true` 加上 120 到 600 秒的超时，或者直接前台 `sleep 90`。等待期间整轮对话被占住，用户插话只能排队。
+
+所以第一个插件 **wait-guard** 做的事很简单：在工具执行前强制执行这条规则，拦截前台长 sleep 和顶层 agent 的长时间阻塞等待，并告诉模型应该怎么做。
+
+装上第一版之后，同一个发行流程的对比：
+
+| | 改动前 A | 改动前 B | 装插件后 |
+|---|---|---|---|
+| 对话被占住 | 22.1 分 | 19.6 分 | 4.6 分 |
+| 阻塞等待 | 13.0 分 | 15.2 分 | 0.2 分 |
+| 自动唤醒 | 0 次 | 0 次 | 3 次，都在任务结束的同一秒 |
+
+要说清楚一点：**收益是"不占住对话"，不是"更快"**。这次总耗时也变短了，但主要是因为那次编译本身快。以前的阻塞等待在任务结束时也会立刻返回，并没有"白等"。真正的变化是编译期间用户随时可以插话，而不是对着一个卡住的对话。
+
+## 发现二：通知没来怎么办
+
+让模型结束一轮去等通知，就要回答一个问题：如果任务卡死，通知永远不来呢？
+
+wait-guard 为此加了一个 `task_status` 工具。模型在一轮的最后声明自己是 `done`、`waiting`（在等后台任务，附上预计时间）还是 `asking`（在等用户回答）。声明 `waiting` 的一轮正常结束后，插件开始计时；超过两倍预计时间还没有新一轮，就主动唤醒模型去检查。
+
+几个边界是刻意设计的：
+
+- 最多连续唤醒 2 次，用户发消息后重新计数，避免无人值守时无限循环；
+- 用户按停止结束的一轮不计时：用户叫停的事，插件不应该再拉起来；
+- 实测：一个 `sleep 300` 的任务，模型预计 1 分钟，插件在第 2 分钟准时唤醒。模型看了一眼输出，重新声明预计 3 分钟；任务结束后模型被正常唤醒并声明完成，兜底计时随之取消。
+
+## 发现三：提问会把模型卡住
+
+`ask_user_question` 默认是阻塞的：问出去之后，在用户回答之前，模型什么也做不了，哪怕手上还有不依赖这个回答的事。
+
+DSH 其实已经实现了非阻塞的 `timed` 模式（超时返回 `pending`，用户的回答之后作为插话送进来），但默认关闭，而且这个工具嵌在 agent preset 内部，用户的配置补丁改不到它。具体的复现过程我发在了 [DSH 讨论 #8547](https://github.com/deepseek-ai/deepseek-harness/discussions/8547)。
+
+插件 **ask-nonblocking** 的绕法是：在每个顶层 agent 创建时，用宿主里同一份官方模块在 agent 自己的作用域里注册一个 `timed` 版本，遮蔽掉 preset 里的阻塞版。实测提问约 1 秒后放行，72 秒后的回答作为新的一轮送了进来。
+
+这个绕法依赖 DSH 的内部接口，所以失败时只写日志、退回阻塞版，不影响任务。
+
+## 还在看的问题
+
+| 问题 | 数据 | 状态 |
 |---|---|---|
-| `timeout` | `1` | 提问后几秒返回 `pending`；`-1` 表示一直等，相当于原来的阻塞行为 |
+| 等人审批时没有提醒，人不在就一直停着 | 58 分钟，最长一次 44.7 分钟 | 下一步 |
+| 令牌出现在命令行和工具输出里 | 多次 grep 令牌后 curl | 计划中 |
+| 前台命令设了过长的超时 | 出现过 15 分钟的前台超时 | 计划中 |
+| 一步只调一个工具 | 87% 的步骤 | 需要先做 A/B 对比 |
+| 反复 tail 日志、重读同一文件 | 同一文档同轮最多重读 7 次 | 计划中 |
+| 审批会卡住整个 step | — | DSH 核心行为，插件做不到（[#8916](https://github.com/deepseek-ai/deepseek-harness/discussions/8916)） |
+| 插话打断不了正在运行的工具 | 插话排队最长 128 秒 | DSH 核心行为，插件做不到（[#11005](https://github.com/deepseek-ai/deepseek-harness/discussions/11005)） |
 
-## 配合 dsh-task-notify
+## 目前包含的插件
 
-[dsh-task-notify](https://github.com/herenfor/dsh-task-notify) 的未发布版本能识别 `task_status`：声明 `waiting` 的一轮不发"完成"通知，等任务结束、模型声明 `done` 后再通知。两个插件各自独立，不装另一个也能用。
+| 插件 | 作用 |
+|---|---|
+| `wait-guard` | 拦截前台长 sleep 和长时间阻塞等待；`task_status` 声明和兜底唤醒 |
+| `ask-nonblocking` | 让 `ask_user_question` 问完不阻塞 |
 
-## 日志
-
-两个子插件都会写诊断日志到 `$DSH_HOME/logs/dsh-runtime-tuning/`（默认 `~/.dsh/logs/dsh-runtime-tuning/`），每个子插件一个 JSON lines 文件。日志只记录事件、规则、秒数、会话 id 和状态，不记录命令全文或对话内容。
-
-## 卸载
-
-```bash
-dsh plugin --profile web remove dsh-runtime-tuning
-```
-
-卸载后重启 DSH。如果在 profile 补丁里写过上面的配置覆盖，也一起删掉。
+安装、配置项、日志和卸载见 [docs/configuration.md](docs/configuration.md)。
 
 ## 开发
 

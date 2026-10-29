@@ -8,7 +8,7 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "description": "Runtime tuning plugins for DeepSeek Harness: keep waits from blocking the turn, wake stalled waits, and make user questions non-blocking.",
+  "description": "Runtime tuning experiments for DeepSeek Harness, driven by real session data.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/herenfor/dsh-runtime-tuning.git"
@@ -32,6 +32,7 @@
   },
   "files": [
     "plugins",
+    "docs",
     "cordis.patch.yml",
     "CHANGELOG.md",
     "LICENSE"
