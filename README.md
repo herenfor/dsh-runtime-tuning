@@ -105,7 +105,6 @@ DSH 其实已经实现了非阻塞的 `timed` 模式（超时返回 `pending`，
 | `wait-guard` | 拦截前台长 sleep 和长时间阻塞等待；`task_status` 声明和兜底唤醒 |
 | `ask-nonblocking` | 让 `ask_user_question` 问完不阻塞 |
 | `secret-guard` | 不让令牌进入模型的上下文 |
-| `Runtime Tuning` 预设 + `preset-prompt` | 可选的 agent 预设：提问直接不阻塞，后台任务的提示只说一种结束方式 |
 
 安装、配置项、日志和卸载见 [docs/configuration.md](docs/configuration.md)。
 

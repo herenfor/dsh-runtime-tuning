@@ -11,5 +11,4 @@
 - secret-guard：拒绝向用户索要凭据的提问、参数里带完整令牌的工具调用和 `gh auth token`；工具结果交给模型前把凭据打码。
 - wait-guard：硬保底。没有声明 `waiting`、但一轮结束时后台还有任务在跑，默认 30 分钟后唤醒模型（`undeclaredMinutes`）；`task_status` 新增 `services`，列出的任务不计时。
 - wait-guard：`task_status` 和最终答复写在同一条回复里、又是唯一的工具调用时，直接结束这一轮（`concludeTurn`）。新会话实测原来每轮都会多请求一次模型，把答复再写一遍。
-- 新增可选的 `Runtime Tuning` agent 预设（`standard` 的复制版，提问用 `timed` 模式）和 `preset-prompt`：只在这个预设的会话里，把官方 tool:jobs 和 wait-guard 的两段后台任务提示合成一段。
-- 37 项自动测试。
+- 33 项自动测试。
