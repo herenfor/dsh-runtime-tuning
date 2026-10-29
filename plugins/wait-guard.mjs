@@ -12,6 +12,8 @@
 //
 // rev 3 增加硬保底：模型没声明 waiting（没调 task_status，或者声明了 done），但一轮结束时后台还有任务在跑，
 // 也按 undeclaredMinutes 计时，到点唤醒模型去检查。模型在 services 里列出的任务（故意留着的开发服务器之类）不计时。
+// - task_status 结束本轮：它和最终答复写在同一条回复里、又是这一步唯一的工具调用时，执行完直接结束这一轮，
+//   省掉“调完工具再请求一次模型、把答复重复一遍”的那一步。和别的工具一起调用时不结束，否则模型看不到那些结果。
 import { randomUUID } from 'node:crypto'
 import { createRecorder } from './log.mjs'
 
@@ -21,6 +23,7 @@ export const inject = ['systemPrompt', 'tools']
 const DEFAULTS = {
   maxSleepSeconds: 5, maxBlockingWaitMs: 15000, jobsDefaultWaitMs: 30000, topLevelOnly: true,
   wakeup: true, backstopFactor: 2, maxBackstopWakes: 2, maxExpectedMinutes: 240, undeclaredMinutes: 30,
+  concludeTurn: true,
 }
 const record = createRecorder('wait-guard.log')
 
@@ -117,7 +120,7 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
   const sessions = new Map()
   const stateOf = (id) => {
     let s = sessions.get(id)
-    if (s === undefined) sessions.set(id, s = { declared: undefined, timer: undefined, wakes: 0, jobs: new Set(), services: new Set() })
+    if (s === undefined) sessions.set(id, s = { declared: undefined, timer: undefined, wakes: 0, jobs: new Set(), services: new Set(), reply: undefined })
     return s
   }
   const disarm = (s) => { if (s.timer !== undefined) clearTimer(s.timer); s.timer = undefined }
@@ -152,9 +155,15 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
       for (const job of declared.services ?? []) s.services.add(job)
       note({ event: 'declared', session: id, state: declared.state, expected_minutes: declared.expected_minutes })
     },
+    /** 这次调用是否独占所在的那条回复、且那条回复带着答复文字：只有这时结束本轮才不丢信息。 */
+    canConclude(id, callId) {
+      const reply = sessions.get(id)?.reply
+      return reply !== undefined && reply.hasText && reply.calls.length === 1 && reply.calls[0] === callId
+    },
     onEvent(session, event) {
       if ((session.header?.delegationDepth ?? 0) > 0) return
       const s = stateOf(session.id)
+      if (event.type === 'assistant/message') { s.reply = describeReply(event.data?.message?.content); return }
       if (event.type === 'turn/start') { disarm(s); s.declared = undefined; return }
       if (event.type === 'user/message' && event.data?.source?.kind === 'user') { s.wakes = 0; return }
       if (event.type === 'job/registered') { if ((event.data?.owner ?? session.id) === session.id) s.jobs.add(event.data?.jobId); return }
@@ -173,8 +182,19 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
   }
 }
 
+/** 一条模型回复里的工具调用 id，以及有没有给用户看的文字。 */
+export function describeReply(content) {
+  const blocks = Array.isArray(content) ? content : []
+  return {
+    calls: blocks.filter((b) => b?.type === 'tool-call').map((b) => b.id),
+    hasText: blocks.some((b) => b?.type === 'text' && typeof b.text === 'string' && b.text.trim() !== ''),
+  }
+}
+
 const promptText = (c) => 'Never block a turn waiting for a background job or with sleep. While a job runs, do independent work. ' +
-  'Before you end a turn, call task_status as your last tool call. Use state "done" when the request is finished or you only answered something. ' +
+  'Before you end a turn, call task_status as your last tool call. ' +
+  (c.concludeTurn ? 'Write your final message and call task_status in the same reply, as its only tool call: that ends the turn directly, so do not repeat the message afterwards. ' : '') +
+  'Use state "done" when the request is finished or you only answered something. ' +
   'Use state "asking" when you end the turn because you still need the user\'s answer to a question you asked; their answer starts a new turn. ' +
   'Use state "waiting" when you end the turn while work you still need is running, with waiting_for (job ids and what they do) and expected_minutes; ' +
   'tell the user what is running. The job-completion notice starts a new turn; if it never comes, dsh-wait-guard wakes you after about ' +
@@ -209,7 +229,9 @@ export function apply(ctx, config = {}) {
   try {
     ctx.tools.register({
       name: 'task_status',
-      description: 'Declare, as the last call of a turn, whether the user\'s task is done, waiting on background work, or waiting for the user\'s answer. Waiting turns are resumed by the job-completion notice, or by a dsh-wait-guard backstop wake if that never arrives.',
+      description: 'Declare, as the last call of a turn, whether the user\'s task is done, waiting on background work, or waiting for the user\'s answer. ' +
+        'Called as the only tool in the reply that carries your final message, it ends the turn directly. ' +
+        'Waiting turns are resumed by the job-completion notice, or by a dsh-wait-guard backstop wake if that never arrives.',
       parameters: STATUS_PARAMETERS,
       output: {
         schema: { type: 'object', additionalProperties: true },
@@ -218,11 +240,18 @@ export function apply(ctx, config = {}) {
       async execute(args, exec) {
         const declared = normalizeStatus(args, c)
         const id = exec.agent?.session?.id
-        if (id !== undefined && isTopLevel(exec)) tracker.declare(id, declared)
+        let concluded = false
+        if (id !== undefined && isTopLevel(exec)) {
+          tracker.declare(id, declared)
+          if (c.concludeTurn && tracker.canConclude(id, exec.callId)) { exec.concludeTurn(); concluded = true }
+          record({ event: 'status-call', session: id, state: declared.state, concluded })
+        }
+        const head = declared.state !== 'waiting' ? `Recorded: ${declared.state}.`
+          : `Recorded: waiting for ${declared.waiting_for} (~${declared.expected_minutes} min).`
         return {
           state: declared.state,
-          text: declared.state !== 'waiting' ? `Recorded: ${declared.state}.`
-            : `Recorded: waiting for ${declared.waiting_for} (~${declared.expected_minutes} min). End your turn now; the completion notice resumes you.`,
+          text: concluded ? `${head} The turn ends here.`
+            : declared.state === 'waiting' ? `${head} End your turn now; the completion notice resumes you.` : head,
         }
       },
     })

@@ -195,3 +195,27 @@ test('services 参数校验', () => {
   assert.throws(() => normalizeStatus({ state: 'done', services: 'bash-dev' }))
   assert.throws(() => normalizeStatus({ state: 'done', services: [''] }))
 })
+
+// ---- rev 4：task_status 结束本轮 ----
+import { describeReply } from '../plugins/wait-guard.mjs'
+
+test('describeReply 数出工具调用和答复文字', () => {
+  assert.deepEqual(describeReply([{ type: 'reasoning', text: 'x' }, { type: 'text', text: '好了' }, { type: 'tool-call', id: 'c1' }]), { calls: ['c1'], hasText: true })
+  assert.deepEqual(describeReply([{ type: 'text', text: '  ' }, { type: 'tool-call', id: 'c1' }]), { calls: ['c1'], hasText: false })
+  assert.deepEqual(describeReply(undefined), { calls: [], hasText: false })
+})
+
+test('只有“答复文字 + 唯一的 task_status”才结束本轮', () => {
+  const h = harness()
+  const reply = (...content) => h.ev('assistant/message', { message: { content } })
+  reply({ type: 'text', text: '做完了' }, { type: 'tool-call', id: 'c1' })
+  assert.equal(h.tracker.canConclude('s', 'c1'), true)
+  assert.equal(h.tracker.canConclude('s', 'other'), false)
+
+  reply({ type: 'text', text: '做完了' }, { type: 'tool-call', id: 'c2' }, { type: 'tool-call', id: 'c3' })
+  assert.equal(h.tracker.canConclude('s', 'c3'), false)  // 同一步还有别的工具，结束会让模型看不到它的结果
+
+  reply({ type: 'tool-call', id: 'c4' })
+  assert.equal(h.tracker.canConclude('s', 'c4'), false)  // 没写答复，结束了用户就看不到总结
+  assert.equal(h.tracker.canConclude('unknown', 'c4'), false)
+})
