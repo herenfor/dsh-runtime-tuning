@@ -1,0 +1,10 @@
+# dsh-runtime-tuning bundle patch。每个子插件一个独立 id，可在自己的 cordis.patch.yml 里单独关掉或改配置：
+#   - id: runtime-tuning-ask-nonblocking
+#     disabled: true
+- insert:
+    - id: runtime-tuning-wait-guard
+      name: ./plugins/wait-guard.mjs
+    - id: runtime-tuning-ask-nonblocking
+      name: ./plugins/ask-nonblocking.mjs
+      config:
+        timeout: 1

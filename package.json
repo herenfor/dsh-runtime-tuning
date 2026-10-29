@@ -1,0 +1,40 @@
+{
+  "name": "dsh-runtime-tuning",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "description": "Runtime tuning plugins for DeepSeek Harness: keep waits from blocking the turn, wake stalled waits, and make user questions non-blocking.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/herenfor/dsh-runtime-tuning.git"
+  },
+  "homepage": "https://github.com/herenfor/dsh-runtime-tuning#readme",
+  "bugs": {
+    "url": "https://github.com/herenfor/dsh-runtime-tuning/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "agent-runtime",
+    "background-jobs"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": "0.2.1-rc.4"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "files": [
+    "plugins",
+    "cordis.patch.yml",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "license": "MIT"
+}
