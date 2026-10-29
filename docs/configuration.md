@@ -51,6 +51,7 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 | `backstopFactor` | `2` | 兜底唤醒在 `expected_minutes` 的几倍之后触发 |
 | `maxBackstopWakes` | `2` | 你没有发消息时，最多连续唤醒几次 |
 | `maxExpectedMinutes` | `240` | `expected_minutes` 的上限 |
+| `undeclaredMinutes` | `30` | 硬保底：没有声明 `waiting`、但一轮结束时后台还有任务在跑，过这么多分钟唤醒模型；`0` 表示关闭。模型在 `task_status` 的 `services` 里列出的任务不计时 |
 
 **ask-nonblocking**
 

@@ -9,4 +9,5 @@
 - ask-nonblocking：在每个顶层 agent 里用官方 `dsh-tool-ask-user` 的 `timed` 模式遮蔽阻塞版提问，默认 1 秒后返回 `pending`；失败时退回阻塞版。
 - 在 DSH `0.2.1-rc.4` web profile 中实测：后台任务完成通知唤醒、任务超时的兜底唤醒、提问 1 秒后放行，以及约 72 秒后的回答作为新一轮送进来。
 - secret-guard：拒绝向用户索要凭据的提问、参数里带完整令牌的工具调用和 `gh auth token`；工具结果交给模型前把凭据打码。
-- 22 项自动测试。
+- wait-guard：硬保底。没有声明 `waiting`、但一轮结束时后台还有任务在跑，默认 30 分钟后唤醒模型（`undeclaredMinutes`）；`task_status` 新增 `services`，列出的任务不计时。
+- 29 项自动测试。

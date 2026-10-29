@@ -9,6 +9,9 @@
 //   用户按停止结束的一轮不计时：用户叫停的事不该被插件重新拉起来。
 // - wakeup: false 时整个插件不生效：没有唤醒，拦截等待只会让任务停住。
 // - asking：问了用户问题、只差回答时用。它不是在等后台任务，所以不计时（回答会自己开启新的一轮）。
+//
+// rev 3 增加硬保底：模型没声明 waiting（没调 task_status，或者声明了 done），但一轮结束时后台还有任务在跑，
+// 也按 undeclaredMinutes 计时，到点唤醒模型去检查。模型在 services 里列出的任务（故意留着的开发服务器之类）不计时。
 import { randomUUID } from 'node:crypto'
 import { createRecorder } from './log.mjs'
 
@@ -17,7 +20,7 @@ export const inject = ['systemPrompt', 'tools']
 
 const DEFAULTS = {
   maxSleepSeconds: 5, maxBlockingWaitMs: 15000, jobsDefaultWaitMs: 30000, topLevelOnly: true,
-  wakeup: true, backstopFactor: 2, maxBackstopWakes: 2, maxExpectedMinutes: 240,
+  wakeup: true, backstopFactor: 2, maxBackstopWakes: 2, maxExpectedMinutes: 240, undeclaredMinutes: 30,
 }
 const record = createRecorder('wait-guard.log')
 
@@ -71,6 +74,7 @@ export const STATUS_PARAMETERS = {
     waiting_for: { type: 'string', description: 'waiting only: the background job id(s) and what they do.' },
     expected_minutes: { type: 'number', description: 'waiting only: how many more minutes you expect the work to take.' },
     summary: { type: 'string', description: 'One line on where things stand.' },
+    services: { type: 'array', items: { type: 'string' }, description: 'Any state: ids of background jobs you deliberately leave running, such as a dev server or a watcher. Every other job still running when the turn ends gets a backstop wake.' },
   },
   required: ['state'],
   additionalProperties: false,
@@ -79,12 +83,14 @@ export const STATUS_PARAMETERS = {
 /** 校验并规整 task_status 参数；不合法时抛出给模型看的错误。 */
 export function normalizeStatus(args, config = DEFAULTS) {
   const c = { ...DEFAULTS, ...config }
-  if (args?.state === 'done' || args?.state === 'asking') return { state: args.state, summary: args.summary }
+  const services = args?.services ?? []
+  if (!Array.isArray(services) || services.some((id) => typeof id !== 'string' || id.trim() === '')) throw new Error('services must be a list of job ids')
+  if (args?.state === 'done' || args?.state === 'asking') return { state: args.state, summary: args.summary, services }
   if (args?.state !== 'waiting') throw new Error('state must be "waiting", "asking" or "done"')
   if (typeof args.waiting_for !== 'string' || args.waiting_for.trim() === '') throw new Error('waiting needs waiting_for: which job(s) you are waiting on')
   const minutes = args.expected_minutes
   if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) throw new Error('waiting needs expected_minutes: a positive number')
-  return { state: 'waiting', waiting_for: args.waiting_for, expected_minutes: Math.min(minutes, c.maxExpectedMinutes), summary: args.summary }
+  return { state: 'waiting', waiting_for: args.waiting_for, expected_minutes: Math.min(minutes, c.maxExpectedMinutes), summary: args.summary, services }
 }
 
 export function backstopText(declared, elapsedMinutes) {
@@ -92,6 +98,14 @@ export function backstopText(declared, elapsedMinutes) {
     `(expected about ${declared.expected_minutes} min). ${elapsedMinutes} min have passed and no completion notice has resumed you. ` +
     'Check the job with job_list / job_output (wait: false). If it is stuck, job_kill it and tell the user what happened. ' +
     'If it is still making progress, call task_status with state "waiting" and a new estimate, then end your turn.'
+}
+
+export function undeclaredText(jobIds, elapsedMinutes) {
+  return `[dsh-wait-guard backstop] You ended the previous turn while background job(s) ${jobIds.join(', ')} were still running, ` +
+    `without declaring that you were waiting for them. ${elapsedMinutes} min have passed and no completion notice has resumed you. ` +
+    'Check them with job_list / job_output (wait: false). If one is stuck, job_kill it and tell the user what happened. ' +
+    'If the work is still making progress, call task_status with state "waiting", waiting_for and expected_minutes, then end your turn. ' +
+    'If a job is a service you mean to leave running, list its id in task_status services.'
 }
 
 /**
@@ -103,29 +117,39 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
   const sessions = new Map()
   const stateOf = (id) => {
     let s = sessions.get(id)
-    if (s === undefined) sessions.set(id, s = { declared: undefined, timer: undefined, wakes: 0 })
+    if (s === undefined) sessions.set(id, s = { declared: undefined, timer: undefined, wakes: 0, jobs: new Set(), services: new Set() })
     return s
   }
   const disarm = (s) => { if (s.timer !== undefined) clearTimer(s.timer); s.timer = undefined }
 
+  const pendingJobs = (s) => [...s.jobs].filter((job) => !s.services.has(job))
+
+  // declared 为 undefined 时是硬保底：只要到点时还有没列进 services 的任务在跑，就唤醒。
   function fire(id, declared, minutes) {
     const s = stateOf(id)
     s.timer = undefined
+    const pending = pendingJobs(s)
+    if (declared === undefined && pending.length === 0) return note({ event: 'backstop-skipped', session: id, reason: 'jobs finished' })
     const agent = getAgent(id)
     if (agent === undefined || agent.status !== 'idle') return note({ event: 'backstop-skipped', session: id, status: agent?.status })
     if (s.wakes >= c.maxBackstopWakes) return note({ event: 'backstop-exhausted', session: id, wakes: s.wakes })
     s.wakes += 1
     agent.followup({
       id: randomUUID(), role: 'user',
-      content: [{ type: 'text', text: backstopText(declared, minutes) }],
-      source: { kind: 'dsh-wait-guard', form: 'notice', summary: `backstop: still waiting for ${declared.waiting_for}` },
+      content: [{ type: 'text', text: declared === undefined ? undeclaredText(pending, minutes) : backstopText(declared, minutes) }],
+      source: {
+        kind: 'dsh-wait-guard', form: 'notice',
+        summary: declared === undefined ? `backstop: ${pending.length} background job(s) still running` : `backstop: still waiting for ${declared.waiting_for}`,
+      },
     })
-    note({ event: 'backstop-wake', session: id, minutes, wakes: s.wakes })
+    note({ event: 'backstop-wake', session: id, minutes, wakes: s.wakes, undeclared: declared === undefined })
   }
 
   return {
     declare(id, declared) {
-      stateOf(id).declared = declared
+      const s = stateOf(id)
+      s.declared = declared
+      for (const job of declared.services ?? []) s.services.add(job)
       note({ event: 'declared', session: id, state: declared.state, expected_minutes: declared.expected_minutes })
     },
     onEvent(session, event) {
@@ -133,25 +157,30 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
       const s = stateOf(session.id)
       if (event.type === 'turn/start') { disarm(s); s.declared = undefined; return }
       if (event.type === 'user/message' && event.data?.source?.kind === 'user') { s.wakes = 0; return }
+      if (event.type === 'job/registered') { if ((event.data?.owner ?? session.id) === session.id) s.jobs.add(event.data?.jobId); return }
+      if (event.type === 'job/settled') { s.jobs.delete(event.data?.jobId); s.services.delete(event.data?.jobId); return }
       if (event.type !== 'turn/end') return
       const reason = event.data?.reason?.kind
-      const declared = s.declared
-      if (declared?.state !== 'waiting') return
+      const declared = s.declared?.state === 'waiting' ? s.declared : undefined
+      const pending = pendingJobs(s)
+      if (declared === undefined && (c.undeclaredMinutes <= 0 || pending.length === 0)) return
       if (reason !== 'completed') return note({ event: 'not-armed', session: session.id, reason })
-      const minutes = Math.ceil(declared.expected_minutes * c.backstopFactor)
+      const minutes = declared === undefined ? c.undeclaredMinutes : Math.ceil(declared.expected_minutes * c.backstopFactor)
       s.timer = setTimer(() => fire(session.id, declared, minutes), minutes * 60_000)
-      note({ event: 'armed', session: session.id, minutes })
+      note({ event: 'armed', session: session.id, minutes, undeclared: declared === undefined, jobs: declared === undefined ? pending.length : undefined })
     },
     dispose() { for (const s of sessions.values()) disarm(s); sessions.clear() },
   }
 }
 
-const PROMPT = 'Never block a turn waiting for a background job or with sleep. While a job runs, do independent work. ' +
+const promptText = (c) => 'Never block a turn waiting for a background job or with sleep. While a job runs, do independent work. ' +
   'Before you end a turn, call task_status as your last tool call. Use state "done" when the request is finished or you only answered something. ' +
   'Use state "asking" when you end the turn because you still need the user\'s answer to a question you asked; their answer starts a new turn. ' +
   'Use state "waiting" when you end the turn while work you still need is running, with waiting_for (job ids and what they do) and expected_minutes; ' +
   'tell the user what is running. The job-completion notice starts a new turn; if it never comes, dsh-wait-guard wakes you after about ' +
-  'twice expected_minutes so you can check the job. A service you started on purpose and leave running is not "waiting": mention it and use "done".'
+  'twice expected_minutes so you can check the job. A service you started on purpose and leave running is not "waiting": mention it, use "done" ' +
+  'and list its job id in services.' + (c.undeclaredMinutes > 0
+    ? ` Any other background job still running when the turn ends gets a backstop wake after about ${c.undeclaredMinutes} minutes.` : '')
 
 export function apply(ctx, config = {}) {
   const c = { ...DEFAULTS, ...config }
@@ -202,7 +231,7 @@ export function apply(ctx, config = {}) {
   }
 
   try {
-    ctx.systemPrompt.section({ name: 'dsh-wait-guard', order: ctx.systemPrompt.getSectionOrder('TOOL_JOBS') + 1, text: PROMPT })
+    ctx.systemPrompt.section({ name: 'dsh-wait-guard', order: ctx.systemPrompt.getSectionOrder('TOOL_JOBS') + 1, text: promptText(c) })
   } catch (error) {
     record({ event: 'prompt-section-failed', error: String(error) })
   }

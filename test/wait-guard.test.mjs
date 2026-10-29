@@ -42,16 +42,17 @@ test('wakeup: false 时不拦截', () => {
 })
 
 test('task_status 参数校验', () => {
-  assert.deepEqual(normalizeStatus({ state: 'done' }), { state: 'done', summary: undefined })
+  assert.deepEqual(normalizeStatus({ state: 'done' }), { state: 'done', summary: undefined, services: [] })
   assert.equal(normalizeStatus({ state: 'waiting', waiting_for: 'bash-1 build', expected_minutes: 999 }).expected_minutes, 240)
   assert.throws(() => normalizeStatus({ state: 'paused' }))
   assert.throws(() => normalizeStatus({ state: 'waiting', expected_minutes: 5 }))
   assert.throws(() => normalizeStatus({ state: 'waiting', waiting_for: 'bash-1', expected_minutes: 0 }))
 })
 
-function harness(status = 'idle') {
+function harness(status = 'idle', config) {
   const timers = [], woken = [], agent = { status, followup: (m) => woken.push(m) }
   const tracker = createTracker({
+    config,
     setTimer: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t },
     clearTimer: (t) => { t.cleared = true },
     getAgent: () => agent,
@@ -121,4 +122,76 @@ test('asking 合法，且不计时', () => {
   const h = harness()
   h.ev('turn/start'); h.tracker.declare('s', { state: 'asking' }); h.ev('turn/end', { reason: { kind: 'completed' } })
   assert.equal(h.timers.length, 0)
+})
+
+// ---- rev 3：没有声明 waiting 时的硬保底 ----
+const started = (h, jobId, owner = 's') => h.ev('job/registered', { jobId, owner })
+const ended = (h, jobId) => h.ev('job/settled', { jobId })
+
+test('没声明就结束一轮、后台还有任务：30 分钟后唤醒，并列出任务 id', () => {
+  const h = harness()
+  h.ev('turn/start'); started(h, 'bash-a'); h.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(h.timers.length, 1)
+  assert.equal(h.timers[0].ms, 30 * 60_000)
+  h.timers[0].fn()
+  assert.equal(h.woken.length, 1)
+  assert.match(h.woken[0].content[0].text, /bash-a/)
+})
+
+test('声明 done 也照样计时；列进 services 的任务不计时', () => {
+  const h = harness()
+  h.ev('turn/start'); started(h, 'bash-a'); h.tracker.declare('s', normalizeStatus({ state: 'done' })); h.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(h.timers.length, 1)
+
+  const svc = harness()
+  svc.ev('turn/start'); started(svc, 'bash-dev'); svc.tracker.declare('s', normalizeStatus({ state: 'done', services: ['bash-dev'] }))
+  svc.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(svc.timers.length, 0)
+})
+
+test('服务和普通任务混在一起：只为普通任务计时，唤醒文本里没有服务', () => {
+  const h = harness()
+  h.ev('turn/start'); started(h, 'bash-dev'); started(h, 'bash-build')
+  h.tracker.declare('s', normalizeStatus({ state: 'done', services: ['bash-dev'] })); h.ev('turn/end', { reason: { kind: 'completed' } })
+  h.timers[0].fn()
+  assert.match(h.woken[0].content[0].text, /bash-build/)
+  assert.doesNotMatch(h.woken[0].content[0].text, /bash-dev/)
+})
+
+test('任务在一轮结束前、或计时期间结束：不唤醒', () => {
+  const before = harness()
+  before.ev('turn/start'); started(before, 'bash-a'); ended(before, 'bash-a'); before.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(before.timers.length, 0)
+
+  const during = harness()
+  during.ev('turn/start'); started(during, 'bash-a'); during.ev('turn/end', { reason: { kind: 'completed' } })
+  ended(during, 'bash-a'); during.timers[0].fn()
+  assert.equal(during.woken.length, 0)
+})
+
+test('硬保底：按停止结束的一轮不计时，别的会话的任务不算，undeclaredMinutes 为 0 时关闭', () => {
+  const stopped = harness()
+  stopped.ev('turn/start'); started(stopped, 'bash-a'); stopped.ev('turn/end', { reason: { kind: 'aborted' } })
+  assert.equal(stopped.timers.length, 0)
+
+  const foreign = harness()
+  foreign.ev('turn/start'); started(foreign, 'bash-x', 'other'); foreign.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(foreign.timers.length, 0)
+
+  const off = harness('idle', { undeclaredMinutes: 0 })
+  off.ev('turn/start'); started(off, 'bash-a'); off.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(off.timers.length, 0)
+})
+
+test('声明了 waiting 仍按预计时间计时，不走硬保底', () => {
+  const h = harness()
+  h.ev('turn/start'); started(h, 'bash-1'); h.tracker.declare('s', h.waiting); h.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(h.timers.length, 1)
+  assert.equal(h.timers[0].ms, 10 * 60_000)
+})
+
+test('services 参数校验', () => {
+  assert.deepEqual(normalizeStatus({ state: 'done', services: ['bash-dev'] }).services, ['bash-dev'])
+  assert.throws(() => normalizeStatus({ state: 'done', services: 'bash-dev' }))
+  assert.throws(() => normalizeStatus({ state: 'done', services: [''] }))
 })
