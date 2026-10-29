@@ -70,6 +70,17 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 
 目前识别的凭据格式：GitHub 令牌（`github_pat_`、`ghp_`、`gho_`、`ghu_`、`ghs_`、`ghr_`）和 `sk-` 开头的 API key。用户直接在聊天框里粘贴的内容不经过工具，secret-guard 管不到。
 
+## Runtime Tuning 预设
+
+插件包还带了一个可选的 agent 预设 `Runtime Tuning`，在新会话开始前从预设列表里选择。已经开始的会话不能换预设，这是 DSH 的设计：预设决定模型看到的工具和提示词，换了会和会话记录对不上。
+
+它是官方 `standard` 预设（DSH `0.2.1-rc.4`）的复制版，只改两处：
+
+- `ask_user_question` 直接使用 `timed` 模式，提问 1 秒后放行；
+- 官方 `tool:jobs` 段落要求"给最终答复前收齐所有后台任务"，和 wait-guard 的"任务还在跑时也可以结束这一轮"互相矛盾。`preset-prompt` 只在这个预设的会话里把两段合成一段。
+
+不选这个预设时，其他插件照常生效，`preset-prompt` 什么都不改。DSH 升级后，这个预设需要对照新的 `standard` 重新核对。
+
 ## 配合 dsh-task-notify
 
 [dsh-task-notify](https://github.com/herenfor/dsh-task-notify) 的未发布版本能识别 `task_status`：声明 `waiting` 的一轮不发"完成"通知，等任务结束、模型声明 `done` 后再通知。两个插件各自独立，不装另一个也能用。
