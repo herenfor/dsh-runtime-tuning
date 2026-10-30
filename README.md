@@ -138,9 +138,10 @@ DSH 自带的 ptc 预设（模型写脚本、在脚本里调工具）在这些�
 
 | 插件 | 作用 |
 |---|---|
-| `wait-guard` | 拦截前台长 sleep 和长时间阻塞等待；后台任务没回报时兜底唤醒模型；可选的 `task_status` 工具 |
+| `wait-guard` | 拦截前台长 sleep 和长时间阻塞等待；一轮结束时要求模型对还在跑的后台任务逐个表态，没回报时兜底唤醒；在结果后附上任务表里的事实（沙箱里 `ps` 看不到的后台任务、重复启动、无效轮询）；可选的 `task_status` 工具 |
 | `ask-nonblocking` | 让 `ask_user_question` 问完不阻塞 |
 | `secret-guard` | 不让令牌进入模型的上下文 |
+| `session-tmp` | Linux 上让同一个对话（包括子代理）的命令共用一个 `/tmp` |
 
 安装、配置项、日志和卸载见 [docs/configuration.md](docs/configuration.md)。
 

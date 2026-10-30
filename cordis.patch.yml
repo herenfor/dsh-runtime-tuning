@@ -10,3 +10,5 @@
         timeout: 1
     - id: runtime-tuning-secret-guard
       name: ./plugins/secret-guard.mjs
+    - id: runtime-tuning-session-tmp
+      name: ./plugins/session-tmp.mjs

@@ -74,6 +74,18 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 
 目前识别的凭据格式：GitHub 令牌（`github_pat_`、`ghp_`、`gho_`、`ghu_`、`ghs_`、`ghr_`）和 `sk-` 开头的 API key。用户直接在聊天框里粘贴的内容不经过工具，secret-guard 管不到。
 
+**session-tmp**（只在 Linux 上生效）
+
+DSH 在 Linux 上给每条命令一个新的沙箱，工作区可写模式下 `/tmp` 是一块用完就丢的内存盘，上一条命令写进 `/tmp` 的文件，下一条就找不到了。这个插件让同一个对话（包括它的子代理）的命令共用一个 `/tmp`：每个对话一个权限为 700 的目录，挂到沙箱的 `/tmp` 上。别的对话和宿主的 `/tmp` 仍然看不到。DSH 退出时删除这些目录，启动时清理上次异常退出留下的旧目录。
+
+它包装的是 DSH 内部的 `sandbox.confine`。如果 DSH 改了实现、沙箱参数里找不到 `--tmpfs /tmp`，就原样放行并在日志里记一条 `passthrough`。只读模式、不用沙箱的命令不受影响。
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 关闭 |
+| `staleHours` | `24` | 启动时删除超过这么多小时没动过的旧目录 |
+| `baseDir` | 系统临时目录下的 `dsh-session-tmp-<uid>` | 对话目录放在哪里 |
+
 ## 配合 dsh-task-notify
 
 [dsh-task-notify](https://github.com/herenfor/dsh-task-notify) 按 DSH 的后台任务事件判断：本次请求启动的任务还在跑时，结束的这一轮不发"完成"通知，等任务结束、模型处理完结果后再通知。它也认 `task_status` 里的 `waiting` 和 `services`。两个插件各自独立，不装另一个也能用。
