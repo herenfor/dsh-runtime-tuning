@@ -14,6 +14,11 @@
 // 也按 undeclaredMinutes 计时，到点唤醒模型去检查。模型在 services 里列出的任务（故意留着的开发服务器之类）不计时。
 // - task_status 结束本轮：它和最终答复写在同一条回复里、又是这一步唯一的工具调用时，执行完直接结束这一轮，
 //   省掉“调完工具再请求一次模型、把答复重复一遍”的那一步。和别的工具一起调用时不结束，否则模型看不到那些结果。
+//
+// rev 4 收尾清点（turnEndAudit）：一轮正常结束时还有没认领的后台任务（没声明 waiting、不在 services 里），
+// 就立刻唤醒一次，列出 DSH 任务表里的事实（id、已运行多久、命令），要求模型对每个任务三选一：在等、是服务、job_kill。
+// 每个任务只问一次；那一轮还不表态就退回 undeclaredMinutes 硬保底。用户发消息后重新开始问。
+// 起因：模型在沙箱里用 ps 看不到后台任务，误以为任务已退出，留下一个空转 40 分钟的扫描进程。
 import { randomUUID } from 'node:crypto'
 import { createRecorder } from './log.mjs'
 
@@ -24,8 +29,10 @@ const DEFAULTS = {
   maxSleepSeconds: 5, maxBlockingWaitMs: 15000, jobsDefaultWaitMs: 30000, maxForegroundTimeoutMs: 30000,
   silentClamp: true, topLevelOnly: true,
   wakeup: true, backstopFactor: 2, maxBackstopWakes: 2, maxExpectedMinutes: 240, undeclaredMinutes: 30,
-  concludeTurn: true,
+  concludeTurn: true, turnEndAudit: true,
 }
+// DSH 先写 turn/end，返回后才把 agent 置为空闲；稍等一下再唤醒。
+const AUDIT_DELAY_MS = 1000
 const record = createRecorder('wait-guard.log')
 
 const UNIT = { '': 1, s: 1, m: 60, h: 3600, d: 86400 }
@@ -139,21 +146,58 @@ export function undeclaredText(jobIds, elapsedMinutes) {
     'If a job is a service you mean to leave running, list its id in task_status services.'
 }
 
+const shortLabel = (label) => {
+  const line = String(label ?? '').replace(/\s+/g, ' ').trim()
+  return line.length > 80 ? `${line.slice(0, 77)}...` : line
+}
+
+/** jobs: [{ id, label, startedAt }]，startedAt 为毫秒时间戳。 */
+export function auditText(jobs, now = Date.now()) {
+  const lines = jobs.map(({ id, label, startedAt }) => {
+    const minutes = typeof startedAt === 'number' ? `, running ${Math.max(0, Math.round((now - startedAt) / 60_000))} min` : ''
+    return `- ${id}${minutes}${label ? `: ${shortLabel(label)}` : ''}`
+  })
+  return '[dsh-wait-guard] You ended the turn while these background jobs are still running ' +
+    '(from the DSH job table; ps inside the command sandbox cannot see them):\n' + lines.join('\n') + '\n' +
+    'Decide for each one, then end your turn:\n' +
+    '- still needed and you are waiting for it: task_status with state "waiting", waiting_for and expected_minutes\n' +
+    '- a service you leave running on purpose: task_status with its id in services\n' +
+    '- no longer needed: job_kill it\n' +
+    'Keep the reply short; the user has already seen your previous answer.'
+}
+
 /**
  * 每个顶层会话的声明和兜底计时。和 DSH 的接触面全部作为参数传进来，方便测试：
  * setTimer/clearTimer 是计时器，getAgent(sessionId) 返回 { status, followup }。
  */
-export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgent, record: note = () => {} }) {
+export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgent, record: note = () => {}, now = Date.now }) {
   const c = { ...DEFAULTS, ...config }
   const sessions = new Map()
   const stateOf = (id) => {
     let s = sessions.get(id)
-    if (s === undefined) sessions.set(id, s = { declared: undefined, timer: undefined, wakes: 0, jobs: new Set(), services: new Set(), reply: undefined })
+    if (s === undefined) sessions.set(id, s = { declared: undefined, timer: undefined, wakes: 0, jobs: new Map(), services: new Set(), acknowledged: new Set(), audited: new Set(), reply: undefined })
     return s
   }
   const disarm = (s) => { if (s.timer !== undefined) clearTimer(s.timer); s.timer = undefined }
 
-  const pendingJobs = (s) => [...s.jobs].filter((job) => !s.services.has(job))
+  const pendingJobs = (s) => [...s.jobs.keys()].filter((job) => !s.services.has(job))
+  const unclaimedJobs = (s) => pendingJobs(s).filter((job) => !s.acknowledged.has(job))
+
+  function audit(id) {
+    const s = stateOf(id)
+    s.timer = undefined
+    const unclaimed = unclaimedJobs(s)
+    if (unclaimed.length === 0) return note({ event: 'audit-skipped', session: id, reason: 'jobs claimed or finished' })
+    const agent = getAgent(id)
+    if (agent === undefined || agent.status !== 'idle') return note({ event: 'audit-skipped', session: id, status: agent?.status })
+    for (const job of unclaimed) s.audited.add(job)
+    agent.followup({
+      id: randomUUID(), role: 'user',
+      content: [{ type: 'text', text: auditText(unclaimed.map((job) => ({ id: job, ...s.jobs.get(job) })), now()) }],
+      source: { kind: 'dsh-wait-guard', form: 'notice', summary: `turn-end check: ${unclaimed.length} background job(s) still running` },
+    })
+    note({ event: 'audit-wake', session: id, jobs: unclaimed.length })
+  }
 
   // declared 为 undefined 时是硬保底：只要到点时还有没列进 services 的任务在跑，就唤醒。
   function fire(id, declared, minutes) {
@@ -181,6 +225,7 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
       const s = stateOf(id)
       s.declared = declared
       for (const job of declared.services ?? []) s.services.add(job)
+      if (declared.state === 'waiting') for (const job of pendingJobs(s)) s.acknowledged.add(job)
       note({ event: 'declared', session: id, state: declared.state, expected_minutes: declared.expected_minutes })
     },
     /** 这次调用是否独占所在的那条回复、且那条回复带着答复文字：只有这时结束本轮才不丢信息。 */
@@ -193,13 +238,26 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
       const s = stateOf(session.id)
       if (event.type === 'assistant/message') { s.reply = describeReply(event.data?.message?.content); return }
       if (event.type === 'turn/start') { disarm(s); s.declared = undefined; return }
-      if (event.type === 'user/message' && event.data?.source?.kind === 'user') { s.wakes = 0; return }
-      if (event.type === 'job/registered') { if ((event.data?.owner ?? session.id) === session.id) s.jobs.add(event.data?.jobId); return }
-      if (event.type === 'job/settled') { s.jobs.delete(event.data?.jobId); s.services.delete(event.data?.jobId); return }
+      if (event.type === 'user/message' && event.data?.source?.kind === 'user') { s.wakes = 0; s.audited.clear(); return }
+      if (event.type === 'job/registered') {
+        if ((event.data?.owner ?? session.id) !== session.id) return
+        s.jobs.set(event.data?.jobId, { label: event.data?.label, startedAt: event.data?.startedAt ?? now() })
+        return
+      }
+      if (event.type === 'job/settled') {
+        const job = event.data?.jobId
+        s.jobs.delete(job); s.services.delete(job); s.acknowledged.delete(job); s.audited.delete(job)
+        return
+      }
       if (event.type !== 'turn/end') return
       const reason = event.data?.reason?.kind
       const declared = s.declared?.state === 'waiting' ? s.declared : undefined
       const pending = pendingJobs(s)
+      // DSH 把每条前台命令也登记成任务，所以只看一轮结束时还在跑、而且还没问过的任务。
+      if (c.turnEndAudit && reason === 'completed' && unclaimedJobs(s).some((job) => !s.audited.has(job))) {
+        s.timer = setTimer(() => audit(session.id), AUDIT_DELAY_MS)
+        return note({ event: 'audit-armed', session: session.id, jobs: unclaimedJobs(s).length })
+      }
       if (declared === undefined && (c.undeclaredMinutes <= 0 || pending.length === 0)) return
       if (reason !== 'completed') return note({ event: 'not-armed', session: session.id, reason })
       const minutes = declared === undefined ? c.undeclaredMinutes : Math.ceil(declared.expected_minutes * c.backstopFactor)
@@ -226,8 +284,12 @@ const BASE_PROMPT = 'Never block a turn waiting for a background job or with sle
   'Put independent reads, checks and edits into one reply as parallel tool calls instead of one call per reply. '
 
 const optionalStatusText = (c) => 'When nothing else is left, end the turn even if jobs are still running and tell the user what is running. ' +
-  'The completion notice starts a new turn, and dsh-wait-guard wakes you after about ' + c.undeclaredMinutes + ' minutes if a job never reports back; ' +
-  'you do not need to declare anything for that. Call task_status only in two cases: a job you leave running will take longer than ' +
+  (c.turnEndAudit
+    ? 'Right after such a turn ends, dsh-wait-guard lists the jobs still running and asks you once to account for each: waiting for it, ' +
+      'a service left running on purpose, or no longer needed (job_kill). Kill jobs you no longer need before ending the turn. '
+    : '') +
+  'The completion notice starts a new turn, and dsh-wait-guard wakes you after about ' + c.undeclaredMinutes + ' minutes if a job never reports back. ' +
+  'Call task_status only in two cases: a job you leave running will take longer than ' +
   c.undeclaredMinutes + ' minutes (state "waiting" with waiting_for and expected_minutes), or a job is a service you leave running on purpose, ' +
   'such as a dev server or a watcher (state "done" with its id in services).' +
   (c.concludeTurn ? ' Make task_status the only tool call in the reply that carries your final message: that ends the turn directly.' : '')

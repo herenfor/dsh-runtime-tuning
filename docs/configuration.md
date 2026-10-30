@@ -55,6 +55,7 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 | `maxExpectedMinutes` | `240` | `expected_minutes` 的上限 |
 | `concludeTurn` | `true` | 模型把最终答复和 `task_status` 写在同一条回复里、且 `task_status` 是这条回复唯一的工具调用时，执行完直接结束这一轮，不再多请求一次模型 |
 | `undeclaredMinutes` | `30` | 硬保底：没有声明 `waiting`、但一轮结束时后台还有任务在跑，过这么多分钟唤醒模型；`0` 表示关闭。模型在 `task_status` 的 `services` 里列出的任务不计时 |
+| `turnEndAudit` | `true` | 收尾清点：一轮正常结束时还有没认领的后台任务（没声明 `waiting`、不在 `services` 里），1 秒后唤醒一次，列出任务 id、已运行时间和命令，要求模型逐个选择：在等、是服务、`job_kill`。每个任务只问一次，不表态就退回 `undeclaredMinutes` 硬保底；子代理、按停止结束的一轮不问 |
 
 **ask-nonblocking**
 

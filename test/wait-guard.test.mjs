@@ -67,10 +67,12 @@ test('task_status 参数校验', () => {
   assert.throws(() => normalizeStatus({ state: 'waiting', waiting_for: 'bash-1', expected_minutes: 0 }))
 })
 
+// 旧用例覆盖声明计时和 30 分钟硬保底，默认关掉收尾清点；清点的用例单独打开。
 function harness(status = 'idle', config) {
   const timers = [], woken = [], agent = { status, followup: (m) => woken.push(m) }
   const tracker = createTracker({
-    config,
+    config: { turnEndAudit: false, ...config },
+    now: () => 60 * 60_000,
     setTimer: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t },
     clearTimer: (t) => { t.cleared = true },
     getAgent: () => agent,
@@ -215,7 +217,7 @@ test('services 参数校验', () => {
 })
 
 // ---- rev 4：task_status 结束本轮 ----
-import { describeReply } from '../plugins/wait-guard.mjs'
+import { describeReply, promptText } from '../plugins/wait-guard.mjs'
 
 test('describeReply 数出工具调用和答复文字', () => {
   assert.deepEqual(describeReply([{ type: 'reasoning', text: 'x' }, { type: 'text', text: '好了' }, { type: 'tool-call', id: 'c1' }]), { calls: ['c1'], hasText: true })
@@ -237,3 +239,88 @@ test('只有“答复文字 + 唯一的 task_status”才结束本轮', () => {
   assert.equal(h.tracker.canConclude('s', 'c4'), false)  // 没写答复，结束了用户就看不到总结
   assert.equal(h.tracker.canConclude('unknown', 'c4'), false)
 })
+
+const audited = (status) => harness(status, { turnEndAudit: true })
+const startedAt = (h, jobId, minutesAgo, label) => h.ev('job/registered', { jobId, owner: 's', label, startedAt: (60 - minutesAgo) * 60_000 })
+const end = (h) => h.ev('turn/end', { reason: { kind: 'completed' } })
+
+test('收尾清点：没认领的任务在一轮结束 1 秒后唤醒一次，列出 id、已运行时间、命令和三个选项', () => {
+  const h = audited()
+  h.ev('turn/start'); startedAt(h, 'bash-c7', 9, 'cd job-hunt && python tools/sweep.py 2>&1 | tail -50'); end(h)
+  assert.deepEqual(h.timers.map((t) => t.ms), [1000])
+  h.timers[0].fn()
+  const text = h.woken[0].content[0].text
+  assert.match(text, /bash-c7, running 9 min: cd job-hunt && python tools\/sweep\.py/)
+  assert.match(text, /ps inside the command sandbox cannot see them/)
+  assert.match(text, /state "waiting"/); assert.match(text, /services/); assert.match(text, /job_kill/)
+  assert.equal(h.woken[0].source.summary, 'turn-end check: 1 background job(s) still running')
+})
+
+test('收尾清点每个任务只问一次：那一轮仍不表态就退回 30 分钟硬保底；用户发消息、或有新任务留到一轮结束才重新问', () => {
+  const h = audited()
+  h.ev('turn/start'); started(h, 'bash-a'); end(h); h.timers[0].fn()
+  h.ev('turn/start'); end(h)
+  assert.equal(h.timers[1].ms, 30 * 60_000)
+
+  h.ev('user/message', { source: { kind: 'user' } }); h.ev('turn/start'); end(h)
+  assert.equal(h.timers[2].ms, 1000)
+  h.timers[2].fn(); h.ev('turn/start'); started(h, 'bash-fg'); ended(h, 'bash-fg'); end(h)
+  assert.equal(h.timers[3].ms, 30 * 60_000)  // 前台命令登记后马上结束，不触发
+  h.ev('turn/start'); started(h, 'bash-b'); end(h)
+  assert.equal(h.timers[4].ms, 1000)
+  h.timers[4].fn()
+  assert.match(h.woken.at(-1).content[0].text, /bash-a[\s\S]*bash-b/)
+})
+
+test('收尾清点：声明 waiting 认领当时在跑的任务，按预计时间计时；之后新启动的任务还要再问', () => {
+  const h = audited()
+  h.ev('turn/start'); started(h, 'bash-1'); h.tracker.declare('s', h.waiting); end(h)
+  assert.deepEqual(h.timers.map((t) => t.ms), [10 * 60_000])
+  h.ev('turn/start'); started(h, 'bash-2'); end(h)
+  assert.equal(h.timers.at(-1).ms, 1000)
+  h.timers.at(-1).fn()
+  assert.match(h.woken[0].content[0].text, /bash-2/)
+  assert.doesNotMatch(h.woken[0].content[0].text, /bash-1/)
+})
+
+test('收尾清点不问：服务、已结束的任务、按停止结束的一轮、子代理、别的会话的任务', () => {
+  const svc = audited()
+  svc.ev('turn/start'); started(svc, 'bash-dev'); svc.tracker.declare('s', normalizeStatus({ state: 'done', services: ['bash-dev'] })); end(svc)
+  assert.equal(svc.timers.length, 0)
+
+  const settled = audited()
+  settled.ev('turn/start'); started(settled, 'bash-a'); end(settled); ended(settled, 'bash-a'); settled.timers[0].fn()
+  assert.equal(settled.woken.length, 0)
+
+  const stopped = audited()
+  stopped.ev('turn/start'); started(stopped, 'bash-a'); stopped.ev('turn/end', { reason: { kind: 'aborted' } })
+  assert.equal(stopped.timers.length, 0)
+
+  const foreign = audited()
+  foreign.ev('turn/start'); started(foreign, 'bash-x', 'other'); end(foreign)
+  assert.equal(foreign.timers.length, 0)
+
+  const sub = audited()
+  sub.tracker.onEvent({ id: 'sub', header: { delegationDepth: 1 } }, { type: 'job/registered', data: { jobId: 'bash-a', owner: 'sub' } })
+  sub.tracker.onEvent({ id: 'sub', header: { delegationDepth: 1 } }, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  assert.equal(sub.timers.length, 0)
+})
+
+test('收尾清点：唤醒前 DSH 已开始新一轮就取消且不算问过；模型正忙不唤醒', () => {
+  const h = audited()
+  h.ev('turn/start'); started(h, 'bash-a'); end(h)
+  h.ev('turn/start')
+  assert.equal(h.timers[0].cleared, true)
+  end(h)
+  assert.equal(h.timers[1].ms, 1000)
+
+  const busy = audited('running')
+  busy.ev('turn/start'); started(busy, 'bash-a'); end(busy); busy.timers[0].fn()
+  assert.equal(busy.woken.length, 0)
+})
+
+test('promptText：开着收尾清点时说明会被问、要先停掉不需要的任务', () => {
+  assert.match(promptText({ undeclaredMinutes: 30, concludeTurn: true, turnEndAudit: true }), /asks you once to account for each/)
+  assert.doesNotMatch(promptText({ undeclaredMinutes: 30, concludeTurn: true, turnEndAudit: false }), /asks you once/)
+})
+
