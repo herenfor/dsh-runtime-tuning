@@ -44,7 +44,9 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 | 配置 | 默认值 | 说明 |
 |---|---|---|
 | `maxSleepSeconds` | `5` | 前台 sleep 超过这个秒数就拒绝 |
-| `maxBlockingWaitMs` | `15000` | 阻塞式 `job_output` 超过这个毫秒数就拒绝 |
+| `maxForegroundTimeoutMs` | `30000` | 前台 `bash`/`pwsh` 的 `timeoutMs` 超过这个毫秒数时静默封顶，让慢命令到点自动转入后台；`0` 表示不限制 |
+| `maxBlockingWaitMs` | `15000` | 阻塞式 `job_output` 超过这个毫秒数时静默改为非阻塞读取（`silentClamp: false` 时改为拒绝） |
+| `silentClamp` | `true` | 在 `tools/execute` 阶段静默钳制超长前台超时与阻塞式 `job_output`，省掉拒绝重试的那一步 |
 | `jobsDefaultWaitMs` | `30000` | `job_output` 没写 `timeout_ms` 时按这个值判断（DSH 的默认值） |
 | `topLevelOnly` | `true` | 只限制顶层 agent 的 `job_output` |
 | `wakeup` | `true` | 设为 `false` 时整个插件不生效。没有唤醒，单独拦截等待只会让任务停住 |

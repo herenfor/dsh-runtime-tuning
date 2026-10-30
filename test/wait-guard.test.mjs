@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { check, longestSleep } from '../plugins/wait-guard.mjs'
+import { check, longestSleep, rewrite } from '../plugins/wait-guard.mjs'
 
 const top = { session: { id: 's', header: { delegationDepth: 0 } } }
 const sub = { session: { id: 's2', header: { delegationDepth: 1 } } }
@@ -22,12 +22,30 @@ test('前台长 sleep 被拒，后台和短 sleep 放行', () => {
   assert.equal(check({ name: 'bash', arguments: { command: 'sleep 3 && curl x' }, agent: top }), undefined)
 })
 
-test('长时间阻塞的 job_output 被拒，短等待、不等待、子代理放行', () => {
-  assert.equal(check({ name: 'job_output', arguments: { job_id: 'b1', wait: true, timeout_ms: 240000 }, agent: top }).rule, 'long-job-wait')
-  assert.equal(check({ name: 'job_output', arguments: { job_id: 'b1', wait: true }, agent: top }).rule, 'long-job-wait')  // 默认 30 s
-  assert.equal(check({ name: 'job_output', arguments: { job_id: 'b1', wait: true, timeout_ms: 10000 }, agent: top }), undefined)
-  assert.equal(check({ name: 'job_output', arguments: { job_id: 'b1' }, agent: top }), undefined)
-  assert.equal(check({ name: 'job_output', arguments: { job_id: 'b1', wait: true, timeout_ms: 240000 }, agent: sub }), undefined)
+test('长时间阻塞的 job_output：默认在 execute 静默改 wait: false；silentClamp: false 时在 pre-execute 拒绝', () => {
+  assert.equal(check({ name: 'job_output', arguments: { job_id: 'b1', wait: true, timeout_ms: 240000 }, agent: top }), undefined)
+  const r1 = rewrite({ name: 'job_output', arguments: Object.freeze({ job_id: 'b1', wait: true, timeout_ms: 240000 }), agent: top })
+  assert.equal(r1.rule, 'long-job-wait')
+  assert.equal(r1.arguments.wait, false)
+  assert.equal(Object.isFrozen(r1.arguments), true)
+  assert.equal(rewrite({ name: 'job_output', arguments: { job_id: 'b1', wait: true }, agent: top }).rule, 'long-job-wait')  // 默认 30 s
+  assert.equal(rewrite({ name: 'job_output', arguments: { job_id: 'b1', wait: true, timeout_ms: 10000 }, agent: top }), undefined)
+  assert.equal(rewrite({ name: 'job_output', arguments: { job_id: 'b1' }, agent: top }), undefined)
+  assert.equal(rewrite({ name: 'job_output', arguments: { job_id: 'b1', wait: true, timeout_ms: 240000 }, agent: sub }), undefined)
+  assert.equal(check({ name: 'job_output', arguments: { job_id: 'b1', wait: true, timeout_ms: 240000 }, agent: top }, { silentClamp: false }).rule, 'long-job-wait')
+})
+
+test('前台 bash/pwsh 超长 timeoutMs 静默封顶；后台、未超限、子代理或关闭时不改', () => {
+  const r = rewrite({ name: 'bash', arguments: Object.freeze({ command: 'cargo build', timeoutMs: 300000 }), agent: top })
+  assert.equal(r.rule, 'foreground-timeout')
+  assert.equal(r.arguments.timeoutMs, 30000)
+  assert.equal(Object.isFrozen(r.arguments), true)
+  assert.equal(rewrite({ name: 'pwsh', arguments: { command: 'dotnet build', timeoutMs: 120000 }, agent: top }).arguments.timeoutMs, 30000)
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'cargo build', timeoutMs: 300000, run_in_background: true }, agent: top }), undefined)
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'echo ok', timeoutMs: 15000 }, agent: top }), undefined)
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'echo ok' }, agent: top }), undefined)
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'cargo build', timeoutMs: 300000 }, agent: sub }), undefined)
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'cargo build', timeoutMs: 300000 }, agent: top }, { maxForegroundTimeoutMs: 0 }), undefined)
 })
 
 test('其他工具不受影响', () => {

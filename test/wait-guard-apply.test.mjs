@@ -2,9 +2,10 @@
 // 日志写到临时目录，不碰真实的 $DSH_HOME。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdtempSync, readdirSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'wait-guard-'))
 const { apply, promptText } = await import('../plugins/wait-guard.mjs')
@@ -55,4 +56,58 @@ test('有硬保底时 task_status 是可选的；关掉硬保底就恢复每轮�
   assert.match(optional, /parallel tool calls/)
   assert.doesNotMatch(optional, /Before you end a turn, call task_status/)
   assert.match(promptText({ undeclaredMinutes: 0, concludeTurn: true }), /Before you end a turn, call task_status/)
+})
+
+test('apply 挂载 tools/execute：冻结参数整对象替换并注入 deferContext（含本机宿主 L2 契约验证）', async (t) => {
+  const handlers = {}
+  apply({
+    on: (name, fn) => { handlers[name] = fn },
+    effect: () => {},
+    get: () => undefined,
+    tools: { register: () => {} },
+    systemPrompt: { section: () => {}, getSectionOrder: () => 0 },
+  })
+  const notes = []
+  const exec = {
+    name: 'bash',
+    arguments: Object.freeze({ command: 'cargo build', timeoutMs: 180000 }),
+    agent: { session: { id: 's', header: { delegationDepth: 0 } } },
+    deferContext: (s) => notes.push(s),
+  }
+  await handlers['tools/execute'](exec, () => Promise.resolve('ok'))
+  assert.equal(exec.arguments.timeoutMs, 30000)
+  assert.equal(notes.length, 1)
+  assert.equal(typeof notes[0], 'string')
+
+  const pnpm = join(homedir(), '.local/share/dsh-cli/node_modules/.pnpm')
+  if (!existsSync(pnpm)) return t.diagnostic('host dsh-cli pnpm store absent; skipped L2 contract check')
+  const pick = (prefix, sub) => {
+    const dir = readdirSync(pnpm).find((d) => d.startsWith(prefix))
+    return dir && join(pnpm, dir, 'node_modules', sub, 'lib/index.js')
+  }
+  const cordisFile = pick('@deepseek-ai+cordis@', '@deepseek-ai/cordis')
+  const spFile = pick('@deepseek-ai+dsh-system-prompt@', '@deepseek-ai/dsh-system-prompt')
+  const toolsFile = pick('@deepseek-ai+dsh-tools@', '@deepseek-ai/dsh-tools')
+  if (!cordisFile || !spFile || !toolsFile) return
+  const { Context } = await import(pathToFileURL(cordisFile).href)
+  const spMod = await import(pathToFileURL(spFile).href)
+  const toolsMod = await import(pathToFileURL(toolsFile).href)
+  const ctx = new Context()
+  ctx.plugin(spMod.default)
+  ctx.plugin(toolsMod.default)
+  ctx.plugin({ name: 'wg-test', apply })
+  await new Promise((r) => setTimeout(r, 30))
+  ctx.tools.register({
+    name: 'bash', description: 't',
+    parameters: { type: 'object', properties: { command: { type: 'string' }, timeoutMs: { type: 'number' } }, required: ['command'] },
+    output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => [{ type: 'text', text: v.text }] },
+    async execute(args) { return { text: `timeoutMs=${args.timeoutMs}` } },
+  })
+  const res = await ctx.tools.execute({
+    callId: 'c1', rootCallId: 'c1', signal: new AbortController().signal,
+    name: 'bash', arguments: { command: 'cargo build', timeoutMs: 300000 },
+  })
+  assert.equal(res.isError, false)
+  assert.equal(res.value.text, 'timeoutMs=30000')
+  assert.equal(res.additionalContexts?.length, 1)
 })

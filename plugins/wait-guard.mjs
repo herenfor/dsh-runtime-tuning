@@ -21,7 +21,8 @@ export const name = 'dsh-wait-guard'
 export const inject = ['systemPrompt', 'tools']
 
 const DEFAULTS = {
-  maxSleepSeconds: 5, maxBlockingWaitMs: 15000, jobsDefaultWaitMs: 30000, topLevelOnly: true,
+  maxSleepSeconds: 5, maxBlockingWaitMs: 15000, jobsDefaultWaitMs: 30000, maxForegroundTimeoutMs: 30000,
+  silentClamp: true, topLevelOnly: true,
   wakeup: true, backstopFactor: 2, maxBackstopWakes: 2, maxExpectedMinutes: 240, undeclaredMinutes: 30,
   concludeTurn: true,
 }
@@ -58,13 +59,40 @@ export function check(exec, config = DEFAULTS) {
         'If there is nothing else to do, call task_status with state "waiting", tell the user what is still running and end your turn; the completion notice starts a new turn.',
     }
   }
-  if (exec.name === 'job_output' && args.wait === true && (!c.topLevelOnly || isTopLevel(exec))) {
+  if (!c.silentClamp && exec.name === 'job_output' && args.wait === true && (!c.topLevelOnly || isTopLevel(exec))) {
     const ms = args.timeout_ms ?? c.jobsDefaultWaitMs
     if (ms > c.maxBlockingWaitMs) return {
       rule: 'long-job-wait', seconds: ms / 1000,
       reason: `blocking on job ${args.job_id} for ${ms / 1000}s is blocked by dsh-wait-guard (limit ${c.maxBlockingWaitMs / 1000}s). ` +
         'You are notified automatically when the job finishes. Do independent work now, use wait: false to peek at new output, ' +
         'or call task_status with state "waiting", tell the user what is running and end your turn — the completion notice starts a new turn.',
+    }
+  }
+  return undefined
+}
+
+/** 返回静默改参结果（整对象冻结替换 + 尾部提示字符串）；无需改写时返回 undefined。 */
+export function rewrite(exec, config = DEFAULTS) {
+  const c = { ...DEFAULTS, ...config }
+  if (!c.wakeup || !c.silentClamp) return undefined
+  const args = exec.arguments ?? {}
+  if ((exec.name === 'bash' || exec.name === 'pwsh') && args.run_in_background !== true && c.maxForegroundTimeoutMs > 0 && (!c.topLevelOnly || isTopLevel(exec))) {
+    if (typeof args.timeoutMs === 'number' && Number.isFinite(args.timeoutMs) && args.timeoutMs > c.maxForegroundTimeoutMs) {
+      return {
+        rule: 'foreground-timeout', fromSeconds: args.timeoutMs / 1000, toSeconds: c.maxForegroundTimeoutMs / 1000,
+        arguments: Object.freeze({ ...args, timeoutMs: c.maxForegroundTimeoutMs }),
+        context: `[dsh-wait-guard] Foreground timeoutMs (${args.timeoutMs}ms) was clamped to ${c.maxForegroundTimeoutMs}ms so slow commands promote to the background instead of holding the turn. If promoted, you are notified automatically when the background job finishes.`,
+      }
+    }
+  }
+  if (exec.name === 'job_output' && args.wait === true && (!c.topLevelOnly || isTopLevel(exec))) {
+    const ms = args.timeout_ms ?? c.jobsDefaultWaitMs
+    if (ms > c.maxBlockingWaitMs) {
+      return {
+        rule: 'long-job-wait', fromSeconds: ms / 1000, toSeconds: 0,
+        arguments: Object.freeze({ ...args, wait: false }),
+        context: `[dsh-wait-guard] Blocking wait of ${ms / 1000}s on job ${args.job_id} (limit ${c.maxBlockingWaitMs / 1000}s) was downgraded to wait: false so the turn stays responsive. You are notified automatically when the job finishes; do independent work now, or end your turn and wait for the completion notice.`,
+      }
     }
   }
   return undefined
@@ -228,6 +256,20 @@ export function apply(ctx, config = {}) {
     if (verdict === undefined) return next()
     record({ event: 'denied', rule: verdict.rule, tool: exec.name, seconds: verdict.seconds, session: exec.agent?.session?.id })
     return Promise.resolve({ kind: 'deny', reason: verdict.reason })
+  })
+
+  ctx.on('tools/execute', (exec, next) => {
+    try {
+      const patch = rewrite(exec, c)
+      if (patch !== undefined) {
+        exec.arguments = patch.arguments
+        if (typeof exec.deferContext === 'function') exec.deferContext(patch.context)
+        record({ event: 'clamped', rule: patch.rule, tool: exec.name, fromSeconds: patch.fromSeconds, toSeconds: patch.toSeconds, session: exec.agent?.session?.id })
+      }
+    } catch (error) {
+      record({ event: 'clamp-failed', tool: exec?.name, error: String(error) })
+    }
+    return next()
   })
 
   const tracker = createTracker({
