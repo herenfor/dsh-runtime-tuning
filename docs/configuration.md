@@ -2,7 +2,7 @@
 
 ## 使用环境
 
-只在 DSH `0.2.1-rc.4` 的 `web` profile 下验证过，系统是 Windows 11 + WSL2，Node.js `22.23.4`。
+声明支持 DSH `0.2.1-rc.4` 及之后的 `0.2.x` 版本（`>=0.2.1-rc.4 <0.3.0-0`），小版本更新不用等插件发新版。实际验证过的是 DSH `0.2.1-rc.4` 的 `web` profile，系统是 Windows 11 + WSL2，Node.js `22.23.4`。DSH 升到 `0.3` 时需要插件更新声明后才能安装。
 
 `headless`、`sdk` 等 profile 暂不支持：wait-guard 会让模型结束一轮去等通知，没有人在看的运行环境不适合这样做。
 

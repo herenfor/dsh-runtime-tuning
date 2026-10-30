@@ -1,7 +1,7 @@
 # DSH Runtime Tuning
 
 [![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.4-blue)](docs/configuration.md#使用环境)
+[![DSH](https://img.shields.io/badge/DSH-0.2.x-blue)](docs/configuration.md#使用环境)
 [![测试](https://github.com/herenfor/dsh-runtime-tuning/actions/workflows/test.yml/badge.svg)](https://github.com/herenfor/dsh-runtime-tuning/actions/workflows/test.yml)
 
 一个关于 agent 运行时的长期实验：从 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的真实会话记录里找出时间花在了哪里、哪些是白白浪费的，再尽量用插件把它修掉，并且每一项都用数据验证。
