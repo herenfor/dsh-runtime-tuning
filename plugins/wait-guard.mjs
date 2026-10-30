@@ -36,6 +36,12 @@ const DEFAULTS = {
   wakeup: true, backstopFactor: 2, maxBackstopWakes: 2, maxExpectedMinutes: 240, undeclaredMinutes: 30,
   concludeTurn: true, turnEndAudit: true, jobNotes: true,
 }
+// deferContext 收的是一条完整的 user 消息，不是字符串：DSH 下一步会读 source.kind，传字符串会让这一轮报错中断。
+export const contextMessage = (text, summary) => ({
+  id: randomUUID(), role: 'user',
+  content: [{ type: 'text', text }],
+  source: { kind: 'dsh-wait-guard', form: 'notice', summary },
+})
 // DSH 先写 turn/end，返回后才把 agent 置为空闲；稍等一下再唤醒。
 const AUDIT_DELAY_MS = 1000
 const record = createRecorder('wait-guard.log')
@@ -373,7 +379,7 @@ export function apply(ctx, config = {}) {
       const patch = rewrite(exec, c)
       if (patch !== undefined) {
         exec.arguments = patch.arguments
-        if (typeof exec.deferContext === 'function') exec.deferContext(patch.context)
+        if (typeof exec.deferContext === 'function') exec.deferContext(contextMessage(patch.context, `clamped ${patch.rule}`))
         record({ event: 'clamped', rule: patch.rule, tool: exec.name, fromSeconds: patch.fromSeconds, toSeconds: patch.toSeconds, session: exec.agent?.session?.id })
       }
     } catch (error) {
@@ -390,7 +396,7 @@ export function apply(ctx, config = {}) {
     try {
       const after = noting ? resultNote(exec, result) : undefined
       if (after !== undefined) notes.push(after)
-      for (const note of notes) exec.deferContext(note.text)
+      for (const note of notes) exec.deferContext(contextMessage(note.text, `job note: ${note.kind}`))
       if (notes.length > 0) record({ event: 'noted', kinds: notes.map((note) => note.kind), tool: exec.name, session: exec.agent?.session?.id })
     } catch (error) {
       record({ event: 'note-failed', tool: exec?.name, error: String(error) })

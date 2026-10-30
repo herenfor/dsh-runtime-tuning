@@ -77,7 +77,9 @@ test('apply 挂载 tools/execute：冻结参数整对象替换并注入 deferCon
   await handlers['tools/execute'](exec, () => Promise.resolve('ok'))
   assert.equal(exec.arguments.timeoutMs, 30000)
   assert.equal(notes.length, 1)
-  assert.equal(typeof notes[0], 'string')
+  assert.equal(notes[0].role, 'user')
+  assert.equal(notes[0].source.kind, 'dsh-wait-guard')
+  assert.match(notes[0].content[0].text, /clamped to 30000ms/)
 
   const pnpm = join(homedir(), '.local/share/dsh-cli/node_modules/.pnpm')
   if (!existsSync(pnpm)) return t.diagnostic('host dsh-cli pnpm store absent; skipped L2 contract check')
@@ -110,6 +112,8 @@ test('apply 挂载 tools/execute：冻结参数整对象替换并注入 deferCon
   assert.equal(res.isError, false)
   assert.equal(res.value.text, 'timeoutMs=30000')
   assert.equal(res.additionalContexts?.length, 1)
+  // agent loop 把 additionalContexts 当消息拼进下一步，会读 source.kind（传字符串时这一轮报错中断）
+  assert.equal(res.additionalContexts[0].source.kind, 'dsh-wait-guard')
 })
 
 test('apply：任务事实在执行前后附到结果里；子代理和关掉 jobNotes 时不附', async () => {
@@ -126,9 +130,9 @@ test('apply：任务事实在执行前后附到结果里；子代理和关掉 jo
   }
   const top = await run({}, 0, 'ps aux | grep sweep')
   assert.equal(top.notes.length, 1)
-  assert.match(top.notes[0], /bash-c7, running 0 min: python tools\/sweep\.py/)
+  assert.match(top.notes[0].content[0].text, /bash-c7, running 0 min: python tools\/sweep\.py/)
   assert.equal(top.result.content[0].text, 'ok')
-  assert.match((await run({}, 0, undefined, 'job_output', '(no new output)\n[status: running]')).notes[0], /Nothing new since your last read/)
+  assert.match((await run({}, 0, undefined, 'job_output', '(no new output)\n[status: running]')).notes[0].content[0].text, /Nothing new since your last read/)
   assert.deepEqual((await run({}, 1, 'ps aux')).notes, [])
   assert.deepEqual((await run({ jobNotes: false }, 0, 'ps aux')).notes, [])
 })
