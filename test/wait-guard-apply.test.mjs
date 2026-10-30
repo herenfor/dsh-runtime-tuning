@@ -111,3 +111,24 @@ test('apply 挂载 tools/execute：冻结参数整对象替换并注入 deferCon
   assert.equal(res.value.text, 'timeoutMs=30000')
   assert.equal(res.additionalContexts?.length, 1)
 })
+
+test('apply：任务事实在执行前后附到结果里；子代理和关掉 jobNotes 时不附', async () => {
+  const run = async (config, depth, command, name = 'bash', output = 'ok') => {
+    const handlers = {}
+    apply({ on: (n, fn) => { handlers[n] = fn }, effect: () => {}, get: () => undefined,
+      tools: { register: () => {} }, systemPrompt: { section: () => {}, getSectionOrder: () => 0 } }, config)
+    const session = { id: 's', header: { delegationDepth: depth } }
+    handlers['session/event'](session, { type: 'job/registered', data: { jobId: 'bash-c7', owner: 's', label: 'python tools/sweep.py', startedAt: Date.now() } })
+    const notes = []
+    const exec = { name, arguments: Object.freeze({ command }), agent: { session }, deferContext: (s) => notes.push(s) }
+    const result = await handlers['tools/execute'](exec, () => Promise.resolve({ content: [{ type: 'text', text: output }] }))
+    return { notes, result }
+  }
+  const top = await run({}, 0, 'ps aux | grep sweep')
+  assert.equal(top.notes.length, 1)
+  assert.match(top.notes[0], /bash-c7, running 0 min: python tools\/sweep\.py/)
+  assert.equal(top.result.content[0].text, 'ok')
+  assert.match((await run({}, 0, undefined, 'job_output', '(no new output)\n[status: running]')).notes[0], /Nothing new since your last read/)
+  assert.deepEqual((await run({}, 1, 'ps aux')).notes, [])
+  assert.deepEqual((await run({ jobNotes: false }, 0, 'ps aux')).notes, [])
+})

@@ -324,3 +324,39 @@ test('promptText：开着收尾清点时说明会被问、要先停掉不需要�
   assert.doesNotMatch(promptText({ undeclaredMinutes: 30, concludeTurn: true, turnEndAudit: false }), /asks you once/)
 })
 
+
+import { commandNotes, resultNote } from '../plugins/wait-guard.mjs'
+
+const sweep = { id: 'bash-c7', label: 'cd job-hunt && rm -f raw.jsonl && .venv/bin/python tools/hdu_sweep.py 2>&1 | tail -50', startedAt: 0 }
+const bash = (command) => ({ name: 'bash', arguments: { command } })
+
+test('查进程的命令：附上本会话还在跑的任务；没有任务、或只是单词里含 ps 时不附', () => {
+  const [note] = commandNotes(bash('ps aux | grep -E "hdu_sweep" | grep -v grep | wc -l'), [sweep], 9 * 60_000)
+  assert.equal(note.kind, 'process-check')
+  assert.match(note.text, /cannot see background jobs/)
+  assert.match(note.text, /- bash-c7, running 9 min: cd job-hunt/)
+  assert.equal(commandNotes(bash('pgrep -f chrome'), [sweep])[0].kind, 'process-check')
+  assert.deepEqual(commandNotes(bash('ps aux'), []), [])
+  assert.deepEqual(commandNotes(bash('echo steps; grep -c hdu_sweep log.txt'), [sweep]), [])
+  assert.deepEqual(commandNotes({ name: 'read', arguments: { command: 'ps' } }, [sweep]), [])
+})
+
+test('重复启动：执行同一个脚本、或命令完全相同时附上旧任务；只读脚本不算', () => {
+  const [note] = commandNotes(bash('cd job-hunt && .venv/bin/python tools/hdu_sweep.py 0 162 127 2>&1 | tail -50'), [sweep], 0)
+  assert.equal(note.kind, 'duplicate-run')
+  assert.match(note.text, /bash-c7/)
+  assert.match(note.text, /job_kill it; if you mean to run both in parallel/)
+  assert.equal(commandNotes(bash(sweep.label), [sweep])[0].kind, 'duplicate-run')
+  assert.equal(commandNotes(bash('./build.sh --fast'), [{ id: 'bash-b', label: 'bash ./build.sh' }])[0].kind, 'duplicate-run')
+  assert.deepEqual(commandNotes(bash("sed -n '1,40p' tools/hdu_sweep.py"), [sweep]), [])
+  assert.deepEqual(commandNotes(bash('python3 tools/report.py'), [sweep]), [])
+})
+
+test('轮询：job_output 没有新输出且还在跑、list_agents 里有子代理在跑时提醒；否则不提醒', () => {
+  const out = (text) => ({ content: [{ type: 'text', text }] })
+  assert.equal(resultNote({ name: 'job_output' }, out('(no new output)\n[status: running]')).kind, 'poll-job')
+  assert.equal(resultNote({ name: 'job_output' }, out('page 3/12\n[status: running]')), undefined)
+  assert.equal(resultNote({ name: 'job_output' }, out('(no new output)\n[status: completed]')), undefined)
+  assert.equal(resultNote({ name: 'list_agents' }, out('3693bedb [running] — 研究大模型公司')).kind, 'poll-agents')
+  assert.equal(resultNote({ name: 'list_agents' }, out('3693bedb [completed]')), undefined)
+})

@@ -19,6 +19,11 @@
 // 就立刻唤醒一次，列出 DSH 任务表里的事实（id、已运行多久、命令），要求模型对每个任务三选一：在等、是服务、job_kill。
 // 每个任务只问一次；那一轮还不表态就退回 undeclaredMinutes 硬保底。用户发消息后重新开始问。
 // 起因：模型在沙箱里用 ps 看不到后台任务，误以为任务已退出，留下一个空转 40 分钟的扫描进程。
+//
+// rev 5 任务事实（jobNotes）：在结果后附上 DSH 任务表里的事实，不拦截、不多花一步。
+// - 命令里有 ps / pgrep / pidof 等：每条命令有自己的沙箱，看不到后台任务，附上本会话还在跑的任务。
+// - 启动的脚本和一个还在跑的任务相同：附上那个任务，让模型决定 job_kill 还是有意并行。
+// - job_output 没有新输出、list_agents 里有子代理在跑：说明完成时会自动通知，不用再查。
 import { randomUUID } from 'node:crypto'
 import { createRecorder } from './log.mjs'
 
@@ -29,7 +34,7 @@ const DEFAULTS = {
   maxSleepSeconds: 5, maxBlockingWaitMs: 15000, jobsDefaultWaitMs: 30000, maxForegroundTimeoutMs: 30000,
   silentClamp: true, topLevelOnly: true,
   wakeup: true, backstopFactor: 2, maxBackstopWakes: 2, maxExpectedMinutes: 240, undeclaredMinutes: 30,
-  concludeTurn: true, turnEndAudit: true,
+  concludeTurn: true, turnEndAudit: true, jobNotes: true,
 }
 // DSH 先写 turn/end，返回后才把 agent 置为空闲；稍等一下再唤醒。
 const AUDIT_DELAY_MS = 1000
@@ -151,19 +156,60 @@ const shortLabel = (label) => {
   return line.length > 80 ? `${line.slice(0, 77)}...` : line
 }
 
+const jobLine = ({ id, label, startedAt }, now) => {
+  const minutes = typeof startedAt === 'number' ? `, running ${Math.max(0, Math.round((now - startedAt) / 60_000))} min` : ''
+  return `- ${id}${minutes}${label ? `: ${shortLabel(label)}` : ''}`
+}
+
 /** jobs: [{ id, label, startedAt }]，startedAt 为毫秒时间戳。 */
 export function auditText(jobs, now = Date.now()) {
-  const lines = jobs.map(({ id, label, startedAt }) => {
-    const minutes = typeof startedAt === 'number' ? `, running ${Math.max(0, Math.round((now - startedAt) / 60_000))} min` : ''
-    return `- ${id}${minutes}${label ? `: ${shortLabel(label)}` : ''}`
-  })
   return '[dsh-wait-guard] You ended the turn while these background jobs are still running ' +
-    '(from the DSH job table; ps inside the command sandbox cannot see them):\n' + lines.join('\n') + '\n' +
+    '(from the DSH job table; ps inside the command sandbox cannot see them):\n' + jobs.map((job) => jobLine(job, now)).join('\n') + '\n' +
     'Decide for each one, then end your turn:\n' +
     '- still needed and you are waiting for it: task_status with state "waiting", waiting_for and expected_minutes\n' +
     '- a service you leave running on purpose: task_status with its id in services\n' +
     '- no longer needed: job_kill it\n' +
     'Keep the reply short; the user has already seen your previous answer.'
+}
+
+const PROCESS_TOOLS = /(?:^|[\s;&|(`])(?:ps|pgrep|pidof|pkill|killall)(?=$|[\s;&|)])/m
+// 被解释器或 ./ 直接执行的脚本；只读脚本（cat、sed）不算。
+const RUN_SCRIPT = /(?:^|[\s;&|(])(?:(?:\S*\/)?(?:python[\d.]*|node|bash|sh|zsh|ruby|perl|deno|bun|tsx)\s+(?:-\S+\s+)*|\.\/)([^\s;&|'"]+\.(?:py|sh|mjs|cjs|js|ts|rb|pl))/g
+const scriptsOf = (command) => new Set([...String(command ?? '').matchAll(RUN_SCRIPT)].map((m) => m[1].split('/').pop()))
+
+/** 执行前就能判断的提醒：查进程、重复启动。jobs 是本会话还在跑的任务。 */
+export function commandNotes(exec, jobs, now = Date.now()) {
+  if ((exec.name !== 'bash' && exec.name !== 'pwsh') || jobs.length === 0) return []
+  const command = String(exec.arguments?.command ?? '')
+  const notes = []
+  if (PROCESS_TOOLS.test(command)) notes.push({
+    kind: 'process-check',
+    text: '[dsh-wait-guard] Each command runs in its own sandbox, so ps / pgrep here cannot see background jobs. ' +
+      'Background jobs of this session that are still running (from the DSH job table):\n' + jobs.map((job) => jobLine(job, now)).join('\n') +
+      '\nUse job_list / job_output to check them and job_kill to stop one.',
+  })
+  const scripts = scriptsOf(command)
+  const same = jobs.filter((job) => String(job.label ?? '').trim() === command.trim() || [...scriptsOf(job.label)].some((s) => scripts.has(s)))
+  if (same.length > 0) notes.push({
+    kind: 'duplicate-run',
+    text: '[dsh-wait-guard] A background job of this session is still running the same script:\n' + same.map((job) => jobLine(job, now)).join('\n') +
+      '\nIf that run is stale or superseded, job_kill it; if you mean to run both in parallel, carry on.',
+  })
+  return notes
+}
+
+/** 看过结果才能判断的提醒：没有新输出还在查、子代理还在跑。 */
+export function resultNote(exec, result) {
+  const text = JSON.stringify(result ?? '')
+  if (exec.name === 'job_output' && text.includes('(no new output)') && text.includes('[status: running]')) return {
+    kind: 'poll-job',
+    text: '[dsh-wait-guard] Nothing new since your last read. DSH notifies you when this job finishes; do other work or end your turn instead of checking again.',
+  }
+  if (exec.name === 'list_agents' && text.includes('[running]')) return {
+    kind: 'poll-agents',
+    text: '[dsh-wait-guard] Subagents send you a message when they finish; you do not need to poll list_agents.',
+  }
+  return undefined
 }
 
 /**
@@ -264,6 +310,8 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
       s.timer = setTimer(() => fire(session.id, declared, minutes), minutes * 60_000)
       note({ event: 'armed', session: session.id, minutes, undeclared: declared === undefined, jobs: declared === undefined ? pending.length : undefined })
     },
+    /** 本会话登记过、还没结束的任务（含服务）。 */
+    runningJobs(id) { return [...(sessions.get(id)?.jobs ?? new Map())].map(([job, info]) => ({ id: job, ...info })) },
     dispose() { for (const s of sessions.values()) disarm(s); sessions.clear() },
   }
 }
@@ -320,7 +368,7 @@ export function apply(ctx, config = {}) {
     return Promise.resolve({ kind: 'deny', reason: verdict.reason })
   })
 
-  ctx.on('tools/execute', (exec, next) => {
+  ctx.on('tools/execute', async (exec, next) => {
     try {
       const patch = rewrite(exec, c)
       if (patch !== undefined) {
@@ -331,7 +379,23 @@ export function apply(ctx, config = {}) {
     } catch (error) {
       record({ event: 'clamp-failed', tool: exec?.name, error: String(error) })
     }
-    return next()
+    const noting = c.wakeup && c.jobNotes && isTopLevel(exec) && typeof exec.deferContext === 'function'
+    let notes = []
+    try {
+      if (noting) notes = commandNotes(exec, tracker.runningJobs(exec.agent?.session?.id), Date.now())
+    } catch (error) {
+      record({ event: 'note-failed', tool: exec?.name, error: String(error) })
+    }
+    const result = await next()
+    try {
+      const after = noting ? resultNote(exec, result) : undefined
+      if (after !== undefined) notes.push(after)
+      for (const note of notes) exec.deferContext(note.text)
+      if (notes.length > 0) record({ event: 'noted', kinds: notes.map((note) => note.kind), tool: exec.name, session: exec.agent?.session?.id })
+    } catch (error) {
+      record({ event: 'note-failed', tool: exec?.name, error: String(error) })
+    }
+    return result
   })
 
   const tracker = createTracker({
