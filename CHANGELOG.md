@@ -1,11 +1,12 @@
 # 更新记录
 
-## 未发布
+## 0.2.1 · 2026-10-31
 
 - wait-guard：bash 命令里自带 `timeout N`（N 超过 30 秒）却没放后台、也没给 `timeoutMs` 时，把 `timeoutMs` 设为 30 秒，到点转后台（DSH 默认要等 60 秒）。真实任务里模型两次写了 `timeout 290` 却放在前台，对话被占住 60 秒，其中一次转后台后它没意识到任务还在跑，又起了一遍。
 - wait-guard：被封顶的命令如果到点被杀（bash 的 `promoteOnTimeout` 关掉了），停用封顶并记 `clamp-disabled`，避免封顶把本来能跑完的命令杀掉。
 - 新增 net-log：连不上模型服务时记下底层原因（走到哪一步、耗时、错误码）。最近 60 个会话里有 172 次 `transport failed`，106 次都是恰好 5 秒后报错，DSH 自己的日志看不出原因。
 - 修复 ask-nonblocking 在 DSH 升级后失效：升级会在 pnpm 仓库里同时留下新旧两份 `dsh-tool-ask-user`，原来的查找要求只有一份，于是每次都退回阻塞版提问（从升级到 `0.2.1-rc.5` 起一直如此）。现在优先用正在运行的 dsh 自己链接的那一份。
+- 在 DSH `0.2.1-rc.5` web profile 中实测：`timeout 120` 的前台命令在 30 秒时转后台（原来 60 秒），附带的说明正常送达；阻塞式 `job_output` 的静默改写第一次在真实环境触发；ask-nonblocking 重新生效；net-log 接上了发往 `api.deepseek.com` 的真实请求。60 项自动测试。
 
 ## 0.2.0 · 2026-10-30
 
