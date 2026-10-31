@@ -136,3 +136,18 @@ test('apply：任务事实在执行前后附到结果里；子代理和关掉 jo
   assert.deepEqual((await run({}, 1, 'ps aux')).notes, [])
   assert.deepEqual((await run({ jobNotes: false }, 0, 'ps aux')).notes, [])
 })
+
+test('apply：被封顶的命令到点被杀（promoteOnTimeout 关掉）时停用封顶', async () => {
+  const handlers = {}
+  apply({ on: (n, fn) => { handlers[n] = fn }, effect: () => {}, get: () => undefined,
+    tools: { register: () => {} }, systemPrompt: { section: () => {}, getSectionOrder: () => 0 } })
+  const session = { id: 's', header: { delegationDepth: 0 } }
+  const call = async (output) => {
+    const exec = { name: 'bash', arguments: Object.freeze({ command: 'timeout 290 make' }), agent: { session }, deferContext: () => {} }
+    await handlers['tools/execute'](exec, () => Promise.resolve({ content: [{ type: 'text', text: output }] }))
+    return exec.arguments.timeoutMs
+  }
+  assert.equal(await call('[still running after 30000ms; moved to background job bash-1]'), 30000)
+  assert.equal(await call('[timed out after 30000ms]'), 30000)
+  assert.equal(await call('ok'), undefined)  // 停用后不再改参数
+})

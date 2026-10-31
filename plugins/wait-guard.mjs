@@ -24,6 +24,8 @@
 // - 命令里有 ps / pgrep / pidof 等：每条命令有自己的沙箱，看不到后台任务，附上本会话还在跑的任务。
 // - 启动的脚本和一个还在跑的任务相同：附上那个任务，让模型决定 job_kill 还是有意并行。
 // - job_output 没有新输出、list_agents 里有子代理在跑：说明完成时会自动通知，不用再查。
+// rev 6 命令自带 timeout N（超过 maxForegroundTimeoutMs）却放前台、又没给 timeoutMs：设成上限，到点转后台，不等 DSH 默认的 60 秒。
+// 封顶依赖“到点转后台”；如果被封顶的命令到点被杀（promoteOnTimeout 关掉了），就停用封顶。
 import { randomUUID } from 'node:crypto'
 import { createRecorder } from './log.mjs'
 
@@ -90,6 +92,20 @@ export function check(exec, config = DEFAULTS) {
 }
 
 /** 返回静默改参结果（整对象冻结替换 + 尾部提示字符串）；无需改写时返回 undefined。 */
+// 命令里自己写了 timeout N（GNU timeout，可带 -k/-s/--signal 等选项），说明模型知道它要跑很久。
+const INLINE_TIMEOUT = /(?:^|[\s;&|(`])timeout\s+(?:(?:-[ks]\s+\S+|--?[A-Za-z][\w-]*(?:=\S+)?)\s+)*(\d+(?:\.\d+)?)([smhd]?)(?=[\s;&|)]|$)/gm
+const UNIT_SECONDS = { '': 1, s: 1, m: 60, h: 3600, d: 86400 }
+
+/** 命令里 timeout N 的最大秒数；没有时返回 undefined。 */
+export function inlineTimeoutSeconds(command) {
+  let max
+  for (const m of String(command ?? '').matchAll(INLINE_TIMEOUT)) {
+    const seconds = Number(m[1]) * UNIT_SECONDS[m[2]]
+    if (max === undefined || seconds > max) max = seconds
+  }
+  return max
+}
+
 export function rewrite(exec, config = DEFAULTS) {
   const c = { ...DEFAULTS, ...config }
   if (!c.wakeup || !c.silentClamp) return undefined
@@ -100,6 +116,15 @@ export function rewrite(exec, config = DEFAULTS) {
         rule: 'foreground-timeout', fromSeconds: args.timeoutMs / 1000, toSeconds: c.maxForegroundTimeoutMs / 1000,
         arguments: Object.freeze({ ...args, timeoutMs: c.maxForegroundTimeoutMs }),
         context: `[dsh-wait-guard] Foreground timeoutMs (${args.timeoutMs}ms) was clamped to ${c.maxForegroundTimeoutMs}ms so slow commands promote to the background instead of holding the turn. If promoted, you are notified automatically when the background job finishes.`,
+      }
+    }
+    // 没给 timeoutMs 时 DSH 要等 60 秒才转后台；命令自带的 timeout 超过上限，就提前到上限转后台。
+    const inline = exec.name === 'bash' && args.timeoutMs === undefined ? inlineTimeoutSeconds(args.command) : undefined
+    if (inline !== undefined && inline * 1000 > c.maxForegroundTimeoutMs) {
+      return {
+        rule: 'inline-timeout', fromSeconds: inline, toSeconds: c.maxForegroundTimeoutMs / 1000,
+        arguments: Object.freeze({ ...args, timeoutMs: c.maxForegroundTimeoutMs }),
+        context: `[dsh-wait-guard] This command carries its own \`timeout ${inline}\`, so it was given timeoutMs ${c.maxForegroundTimeoutMs}ms: if it is still running then, it moves to the background and you are notified when it finishes. Start commands you expect to run long with run_in_background: true.`,
       }
     }
   }
@@ -361,9 +386,13 @@ const requiredStatusText = (c) =>
   'and list its job id in services.' + (c.undeclaredMinutes > 0
     ? ` Any other background job still running when the turn ends gets a backstop wake after about ${c.undeclaredMinutes} minutes.` : '')
 
+/** bash 到点被杀会写 [timed out after Nms]；转后台写的是 [still running after Nms; moved to background job …]。 */
+export const killedOnTimeout = (result) => /\[timed out after \d+ms\]/.test(JSON.stringify(result ?? ''))
+
 export function apply(ctx, config = {}) {
   const c = { ...DEFAULTS, ...config }
   record({ event: 'loaded', config: c })
+  let clampOff = false
   if (!c.wakeup) return record({ event: 'inactive', reason: 'wakeup disabled' })
 
   ctx.on('tools/pre-execute', (exec, next) => {
@@ -375,8 +404,9 @@ export function apply(ctx, config = {}) {
   })
 
   ctx.on('tools/execute', async (exec, next) => {
+    let patch
     try {
-      const patch = rewrite(exec, c)
+      patch = clampOff ? undefined : rewrite(exec, c)
       if (patch !== undefined) {
         exec.arguments = patch.arguments
         if (typeof exec.deferContext === 'function') exec.deferContext(contextMessage(patch.context, `clamped ${patch.rule}`))
@@ -393,6 +423,11 @@ export function apply(ctx, config = {}) {
       record({ event: 'note-failed', tool: exec?.name, error: String(error) })
     }
     const result = await next()
+    // 封顶靠的是"到点转后台"。DSH 关掉 promoteOnTimeout 时到点会直接杀掉命令，这时停用封顶。
+    if (patch?.arguments.timeoutMs !== undefined && !clampOff && killedOnTimeout(result)) {
+      clampOff = true
+      record({ event: 'clamp-disabled', reason: 'a clamped command was killed at its timeout instead of moving to the background', rule: patch.rule, session: exec.agent?.session?.id })
+    }
     try {
       const after = noting ? resultNote(exec, result) : undefined
       if (after !== undefined) notes.push(after)

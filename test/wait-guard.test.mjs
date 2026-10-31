@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { check, longestSleep, rewrite } from '../plugins/wait-guard.mjs'
+import { check, inlineTimeoutSeconds, killedOnTimeout, longestSleep, rewrite } from '../plugins/wait-guard.mjs'
 
 const top = { session: { id: 's', header: { delegationDepth: 0 } } }
 const sub = { session: { id: 's2', header: { delegationDepth: 1 } } }
@@ -46,6 +46,33 @@ test('前台 bash/pwsh 超长 timeoutMs 静默封顶；后台、未超限、子�
   assert.equal(rewrite({ name: 'bash', arguments: { command: 'echo ok' }, agent: top }), undefined)
   assert.equal(rewrite({ name: 'bash', arguments: { command: 'cargo build', timeoutMs: 300000 }, agent: sub }), undefined)
   assert.equal(rewrite({ name: 'bash', arguments: { command: 'cargo build', timeoutMs: 300000 }, agent: top }, { maxForegroundTimeoutMs: 0 }), undefined)
+})
+
+test('命令自带 timeout N 超过上限、又没给 timeoutMs 时，提前到上限转后台', () => {
+  // 真实任务里模型写了 timeout 290 却放在前台，DSH 要等 60 秒才转后台
+  const r = rewrite({ name: 'bash', arguments: Object.freeze({ command: 'cd x && timeout 290 .venv/bin/python sweep.py 0 162' }), agent: top })
+  assert.equal(r.rule, 'inline-timeout')
+  assert.equal(r.fromSeconds, 290)
+  assert.equal(r.arguments.timeoutMs, 30000)
+  assert.equal(Object.isFrozen(r.arguments), true)
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'timeout 20 curl -s x' }, agent: top }), undefined)
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'timeout 290 make', timeoutMs: 20000 }, agent: top }), undefined)  // 模型给了就尊重
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'timeout 290 make', run_in_background: true }, agent: top }), undefined)
+  assert.equal(rewrite({ name: 'bash', arguments: { command: 'timeout 290 make' }, agent: sub }), undefined)
+  assert.equal(rewrite({ name: 'pwsh', arguments: { command: 'timeout 290' }, agent: top }), undefined)  // pwsh 的 timeout 是暂停
+})
+
+test('解析 GNU timeout 的时长和选项', () => {
+  assert.equal(inlineTimeoutSeconds('timeout -k 5 5m ./run.sh'), 300)
+  assert.equal(inlineTimeoutSeconds('timeout --signal=KILL 1.5h make'), 5400)
+  assert.equal(inlineTimeoutSeconds('timeout 20 a; timeout 120 b'), 120)
+  assert.equal(inlineTimeoutSeconds('python -c "timeout=300"'), undefined)
+  assert.equal(inlineTimeoutSeconds('gtimeout 300 x'), undefined)
+})
+
+test('识别 bash 到点被杀（而不是转后台）', () => {
+  assert.equal(killedOnTimeout({ content: [{ type: 'text', text: 'partial\n[timed out after 30000ms]' }] }), true)
+  assert.equal(killedOnTimeout({ content: [{ type: 'text', text: '[still running after 30000ms; moved to background job bash-1]' }] }), false)
 })
 
 test('其他工具不受影响', () => {
