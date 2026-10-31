@@ -14,9 +14,15 @@ const DEFAULTS = { timeout: 1 }
 const record = createRecorder('ask-nonblocking.log')
 const PACKAGE_DIR = '@deepseek-ai+dsh-tool-ask-user@'
 
-/** 在宿主的 pnpm 仓库里找官方 dsh-tool-ask-user 的入口（和 preset 加载的是同一份）。 */
+/** 找官方 dsh-tool-ask-user 的入口，要和 preset 加载的是同一份。 */
 export async function findOfficialAskUser(entryScript, read = readdir, resolve = realpath) {
   const bin = await resolve(entryScript)
+  // 先找正在运行的 dsh 旁边链接的那一份：升级以后 store 里会同时留着新旧两个版本。
+  const scope = '/node_modules/@deepseek-ai/'
+  const own = bin.lastIndexOf(scope)
+  if (own >= 0) {
+    try { return join(await resolve(bin.slice(0, own + scope.length) + 'dsh-tool-ask-user'), 'lib/index.js') } catch {}
+  }
   const at = bin.indexOf('/.pnpm/')
   if (at < 0) throw new Error('host is not a pnpm install; cannot locate dsh-tool-ask-user')
   const store = bin.slice(0, at + '/.pnpm'.length)
