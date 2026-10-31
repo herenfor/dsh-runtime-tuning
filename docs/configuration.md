@@ -44,7 +44,7 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 | 配置 | 默认值 | 说明 |
 |---|---|---|
 | `maxSleepSeconds` | `5` | 前台 sleep 超过这个秒数就拒绝 |
-| `maxForegroundTimeoutMs` | `30000` | 前台 `bash`/`pwsh` 的 `timeoutMs` 超过这个毫秒数时静默封顶，让慢命令到点自动转入后台；`0` 表示不限制 |
+| `maxForegroundTimeoutMs` | `30000` | 前台 `bash`/`pwsh` 的 `timeoutMs` 超过这个毫秒数时静默封顶，让慢命令到点自动转入后台；没给 `timeoutMs`、但 bash 命令里自带的 `timeout N` 超过它时，也设成这个值（DSH 默认要 60 秒才转后台）；`0` 表示不限制。封顶依赖 DSH 的超时转后台，如果关掉了 bash 的 `promoteOnTimeout`、被封顶的命令到点被杀，插件会停用封顶并记一条 `clamp-disabled` |
 | `maxBlockingWaitMs` | `15000` | 阻塞式 `job_output` 超过这个毫秒数时静默改为非阻塞读取（`silentClamp: false` 时改为拒绝） |
 | `silentClamp` | `true` | 在 `tools/execute` 阶段静默钳制超长前台超时与阻塞式 `job_output`，省掉拒绝重试的那一步 |
 | `jobsDefaultWaitMs` | `30000` | `job_output` 没写 `timeout_ms` 时按这个值判断（DSH 的默认值） |
@@ -85,6 +85,15 @@ DSH 在 Linux 上给每条命令一个新的沙箱，工作区可写模式下 `/
 | `enabled` | `true` | 设为 `false` 关闭 |
 | `staleHours` | `24` | 启动时删除超过这么多小时没动过的旧目录 |
 | `baseDir` | 系统临时目录下的 `dsh-session-tmp-<uid>` | 对话目录放在哪里 |
+
+**net-log**
+
+DSH 的会话日志里，连不上模型服务时只写一句 `DeepSeek Messages transport failed`，底层原因丢掉了。这个插件订阅 Node 的 undici 诊断频道，请求失败时记下目标主机、路径（不含查询串）、请求走到了哪一步（`sent` 已发出 / `body-sent` 请求体发完 / `headers` 收到响应头）、耗时和错误码。它只观察、不改请求，不记请求头和内容。第一次看到目标主机的请求时记一条 `watching`，说明已经接上。
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 关闭 |
+| `hosts` | `['deepseek.com']` | 只记录这些主机（含子域名）的请求 |
 
 ## 配合 dsh-task-notify
 
