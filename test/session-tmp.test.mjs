@@ -58,10 +58,10 @@ test('结果里的对话目录换回 /tmp；字节和没变的对象原样', () 
   assert.equal(unmapResult(same, dir), same)
 })
 
-function fakeHost(config) {
+function fakeHost(config, prefix = ['bwrap', '--tmpfs', '/tmp']) {
   const handlers = {}, effects = []
   const calls = []
-  const sandbox = { async confine(argv, policy) { calls.push(policy); return { argv: ['bwrap', '--tmpfs', '/tmp', '--', ...argv], enforcement: 'full' } } }
+  const sandbox = { async confine(argv, policy) { calls.push(policy); return { argv: [...prefix, '--', ...argv], enforcement: 'full' } } }
   const original = sandbox.confine
   const ctx = {
     on: (name, fn) => { handlers[name] = fn },
@@ -131,5 +131,15 @@ test('apply：工作区可写的对话里，read_image /tmp 读到 bash 写进�
   const ro = { name: 'read', arguments: { file_path: '/tmp/x' }, agent: { session: { id: 'ro' } } }
   await h.handlers['tools/execute'](ro, async () => ({}))
   assert.equal(ro.arguments.file_path, '/tmp/x')
+  h.dispose()
+})
+
+test('沙箱参数里没有 --tmpfs /tmp（Landlock 等）时，文件工具不映射', linuxOnly, async () => {
+  const h = fakeHost({}, ['landlock-run'])
+  await h.sandbox.confine(['ls'], { mode: 'workspace-write', sessionId: 'root' })
+  h.handlers['session/event']({ id: 'root', header: {} }, { type: 'sandbox/mode', data: { mode: 'workspace-write' } })
+  const exec = { name: 'read', arguments: { file_path: '/tmp/x' }, agent: { session: { id: 'root' } } }
+  await h.handlers['tools/execute'](exec, async () => ({}))
+  assert.equal(exec.arguments.file_path, '/tmp/x')
   h.dispose()
 })

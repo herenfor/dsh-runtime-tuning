@@ -6,7 +6,7 @@
 // 隔离不变：别的对话和宿主的 /tmp 仍然看不到。找不到预期参数（DSH 改了实现、不是 bwrap、只读模式）就原样放行。
 // 文件工具（read / write / edit / read_image / glob / grep / present）不进沙箱，看到的是宿主的 /tmp：
 // bash 里 curl -o /tmp/x.png 之后 read_image /tmp/x.png 必然找不到。工作区可写时把这些工具参数里的 /tmp
-// 换成同一个对话目录，结果里的对话目录再换回 /tmp，模型只看到一个 /tmp。
+// 换成同一个对话目录，结果里的对话目录再换回 /tmp，模型只看到一个 /tmp。只在确认换过 bwrap 的 /tmp 之后才映射。
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -106,6 +106,8 @@ export function apply(ctx, config = {}) {
   const roots = createRoots()
   const created = new Set()
   let missed = false
+  // 只有真的换过 bwrap 的 /tmp，bash 和文件工具才会看到不同的 /tmp；Landlock、别的沙箱或 DSH 改了参数时 bash 用的就是宿主 /tmp，不能映射
+  let rebound = false
 
   const dirFor = (sessionId) => {
     const dir = join(base, safeName(roots.rootOf(sessionId)))
@@ -130,7 +132,7 @@ export function apply(ctx, config = {}) {
     let dir
     try {
       const sessionId = exec.agent?.session?.id
-      if (c.fileTools && typeof sessionId === 'string' && modeOf(sessionId) === 'workspace-write') {
+      if (c.fileTools && rebound && !missed && typeof sessionId === 'string' && modeOf(sessionId) === 'workspace-write') {
         dir = dirFor(sessionId)
         const mapped = mapToolArgs(exec.name, exec.arguments, dir)
         if (mapped === undefined) dir = undefined
@@ -168,6 +170,7 @@ export function apply(ctx, config = {}) {
           if (!missed) { missed = true; record({ event: 'passthrough', reason: 'no --tmpfs /tmp in sandbox argv' }) }
           return result
         }
+        rebound = true
         return { ...result, argv: next }
       } catch (error) {
         record({ event: 'rebind-failed', error: String(error) })
