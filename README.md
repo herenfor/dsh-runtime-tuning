@@ -162,6 +162,7 @@ DSH 自带的 ptc 预设（模型写脚本、在脚本里调工具）在这些�
 | `secret-guard` | 不让令牌进入模型的上下文 |
 | `session-tmp` | Linux 上让同一个对话（包括子代理）的命令共用一个 `/tmp` |
 | `chat-answer-fix` | 带着工具调用结束的一轮，答复照常显示，不被收进折叠里（替换聊天界面里的一个判定） |
+| 精简预设 `lean` | 一份固定的预设：去掉日常编码用不到的工具，加一段少走步数的执行规则，用来和 standard 对比总耗时 |
 | `net-log` | 连不上模型服务时记下底层原因（DSH 自己的日志里只有一句 transport failed） |
 
 安装、配置项、日志和卸载见 [docs/configuration.md](docs/configuration.md)。
