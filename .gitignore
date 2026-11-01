@@ -5,3 +5,7 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# chat-answer-fix 启动时从正在运行的 DSH 生成
+ui-chat/client.js
+ui-chat/package.json

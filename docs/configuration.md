@@ -53,7 +53,7 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 | `backstopFactor` | `2` | 兜底唤醒在 `expected_minutes` 的几倍之后触发 |
 | `maxBackstopWakes` | `2` | 你没有发消息时，最多连续唤醒几次 |
 | `maxExpectedMinutes` | `240` | `expected_minutes` 的上限 |
-| `concludeTurn` | `false` | 设为 `true` 时：模型把最终答复和 `task_status` 写在同一条回复里、且 `task_status` 是这条回复唯一的工具调用时，执行完直接结束这一轮，省一次模型请求。默认关闭，因为 DSH 的聊天界面只把不带工具调用的最后一步当作回答，这样结束的一轮，答复会被收进折叠的步骤里 |
+| `concludeTurn` | `'auto'` | 模型把最终答复和 `task_status` 写在同一条回复里、且 `task_status` 是这条回复唯一的工具调用时，执行完直接结束这一轮，省一次模型请求。`'auto'`：只在 chat-answer-fix 生效时这样做（DSH 原版聊天界面会把这样结束的一轮的答复收进折叠里）；`true` / `false` 强制开关 |
 | `undeclaredMinutes` | `30` | 硬保底：没有声明 `waiting`、但一轮结束时后台还有任务在跑，过这么多分钟唤醒模型；`0` 表示关闭。模型在 `task_status` 的 `services` 里列出的任务不计时 |
 | `turnEndAudit` | `true` | 收尾清点：一轮正常结束时还有没认领的后台任务（没声明 `waiting`、不在 `services` 里），1 秒后唤醒一次，列出任务 id、已运行时间和命令，要求模型逐个选择：在等、是服务、`job_kill`。每个任务只问一次，不表态就退回 `undeclaredMinutes` 硬保底；子代理、按停止结束的一轮不问 |
 | `jobNotes` | `true` | 任务事实：不拦截、不多花一步，只在结果后附一句。命令里有 `ps`/`pgrep`/`pidof` 等时，说明沙箱看不到后台任务并列出本会话还在跑的任务；启动的脚本和一个还在跑的任务相同时，列出那个任务；`job_output` 没有新输出、`list_agents` 里有子代理在跑时，说明完成时会自动通知。只对顶层 agent 生效 |
@@ -85,6 +85,12 @@ DSH 在 Linux 上给每条命令一个新的沙箱，工作区可写模式下 `/
 | `enabled` | `true` | 设为 `false` 关闭 |
 | `staleHours` | `24` | 启动时删除超过这么多小时没动过的旧目录 |
 | `baseDir` | 系统临时目录下的 `dsh-session-tmp-<uid>` | 对话目录放在哪里 |
+
+**chat-answer-fix**（聊天界面）
+
+DSH 的聊天界面只把"不带工具调用的最后一步"当作回答显示。一轮如果是带着工具调用结束的（比如 wait-guard 的 `concludeTurn`），答复会被收进折叠的步骤里，要点开才看得到。插件包把 profile 里 `ui-chat` 这一行换成 `ui-chat/index.mjs`：它沿用官方包名，服务端原样转出官方实现；浏览器端是每次启动时从当前版本的官方文件生成的副本，只改这一个判定（已经结束的一轮，最后一步带工具调用也算回答）。找不到要改的那一行时原样使用官方文件，日志记 `unpatched`。
+
+如果你自己的 `cordis.patch.yml` 里 `ui-chat` 那一行写了 `name: "@deepseek-ai/dsh-client-ui-chat"`（改过聊天显示设置时会出现），它会盖掉插件包的替换，删掉 `name` 只留 `config` 即可。不想要这个替换，就在自己的补丁里写回这个 `name`。
 
 **net-log**
 
