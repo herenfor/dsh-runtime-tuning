@@ -77,3 +77,15 @@ export function prepareChatFix(entryScript = process.argv[1]) {
   }
   return prepared
 }
+
+/** 替身真的在用：补丁打上了，profile 里官方 ui-chat 停用、runtime-tuning-ui-chat 启用（用户可能按文档关掉了替换）。 */
+export function chatFixActive(entries, patched) {
+  if (!patched) return false
+  let official, ours
+  for (const entry of entries ?? []) {
+    if (entry.options?.id === 'ui-chat') official = entry
+    if (entry.options?.id === 'runtime-tuning-ui-chat') ours = entry
+  }
+  const off = (entry) => entry.disabled === true || entry.options?.disabled === true
+  return ours !== undefined && !off(ours) && (official === undefined || off(official))
+}

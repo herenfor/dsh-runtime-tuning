@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'chat-answer-fix-'))
-const { ANCHOR, REPLACEMENT, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
+const { ANCHOR, REPLACEMENT, chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
 const { resolveConclude } = await import('../plugins/wait-guard.mjs')
 
 test('只在要改的那一行恰好出现一次时替换', () => {
@@ -61,4 +61,13 @@ test('L2：替身能加载官方服务端，并把写在 ui-chat 上的配置转
   assert.deepEqual(ui.configOf([{ options: { id: 'x' } }, { options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }]), { transcriptView: 'standard' })
   assert.equal(ui.configOf([]), undefined)
   assert.doesNotThrow(() => ui.Config({ transcriptView: 'standard' }))  // 和加载器一样先过官方 schema
+})
+
+test('替身真的在用才算：补丁打上、官方那行停用、我们这行启用', () => {
+  const row = (id, disabled) => ({ options: { id }, disabled })
+  assert.equal(chatFixActive([row('ui-chat', true), row('runtime-tuning-ui-chat', false)], true), true)
+  assert.equal(chatFixActive([row('ui-chat', true), row('runtime-tuning-ui-chat', false)], false), false)  // 没打上补丁
+  assert.equal(chatFixActive([row('ui-chat', false), row('runtime-tuning-ui-chat', true)], true), false)  // 用户按文档关掉了
+  assert.equal(chatFixActive([row('ui-chat', false), row('runtime-tuning-ui-chat', false)], true), false)  // 两行都开着
+  assert.equal(chatFixActive(undefined, true), false)
 })

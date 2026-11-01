@@ -27,7 +27,7 @@
 // rev 6 命令自带 timeout N（超过 maxForegroundTimeoutMs）却放前台、又没给 timeoutMs：设成上限，到点转后台，不等 DSH 默认的 60 秒。
 // 封顶依赖“到点转后台”；如果被封顶的命令到点被杀（promoteOnTimeout 关掉了），就停用封顶。
 import { randomUUID } from 'node:crypto'
-import { prepareChatFix } from './chat-answer-fix.mjs'
+import { chatFixActive, prepareChatFix } from './chat-answer-fix.mjs'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-wait-guard'
@@ -393,12 +393,14 @@ const requiredStatusText = (c) =>
 /** bash 到点被杀会写 [timed out after Nms]；转后台写的是 [still running after Nms; moved to background job …]。 */
 export const killedOnTimeout = (result) => /\[timed out after \d+ms\]/.test(JSON.stringify(result ?? ''))
 
-// auto：chat-answer-fix 打上了补丁（带工具调用结束的一轮也会显示回答）才直接结束这一轮。
+// auto：chat-answer-fix 在用（带工具调用结束的一轮也会显示回答）才直接结束这一轮。
 export const resolveConclude = (value, answerVisible) => value === 'auto' ? answerVisible() : value === true
 
 export function apply(ctx, config = {}) {
   const c = { ...DEFAULTS, ...config }
-  c.concludeTurn = resolveConclude(c.concludeTurn, () => prepareChatFix().patched)
+  c.concludeTurn = resolveConclude(c.concludeTurn, () => {
+    try { return chatFixActive(ctx.loader?.entries?.(), prepareChatFix().patched) } catch { return false }
+  })
   record({ event: 'loaded', config: c })
   let clampOff = false
   if (!c.wakeup) return record({ event: 'inactive', reason: 'wakeup disabled' })
