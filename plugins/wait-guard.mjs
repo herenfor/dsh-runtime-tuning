@@ -36,7 +36,7 @@ const DEFAULTS = {
   maxSleepSeconds: 5, maxBlockingWaitMs: 15000, jobsDefaultWaitMs: 30000, maxForegroundTimeoutMs: 30000,
   silentClamp: true, topLevelOnly: true,
   wakeup: true, backstopFactor: 2, maxBackstopWakes: 2, maxExpectedMinutes: 240, undeclaredMinutes: 30,
-  concludeTurn: true, turnEndAudit: true, jobNotes: true,
+  concludeTurn: false, turnEndAudit: true, jobNotes: true,
 }
 // deferContext 收的是一条完整的 user 消息，不是字符串：DSH 下一步会读 source.kind，传字符串会让这一轮报错中断。
 export const contextMessage = (text, summary) => ({
@@ -371,13 +371,16 @@ const optionalStatusText = (c) => 'When nothing else is left, end the turn even 
   'Call task_status only in two cases: a job you leave running will take longer than ' +
   c.undeclaredMinutes + ' minutes (state "waiting" with waiting_for and expected_minutes), or a job is a service you leave running on purpose, ' +
   'such as a dev server or a watcher (state "done" with its id in services).' +
-  (c.concludeTurn ? ' Make task_status the only tool call in the reply that carries your final message: that ends the turn directly.' : '')
+  (c.concludeTurn ? ' Make task_status the only tool call in the reply that carries your final message: that ends the turn directly.' : FINAL_REPLY_TEXT)
+
+// DSH 的聊天界面只把"不带工具调用的最后一步"当作回答显示；带了工具调用的正文会收进折叠的步骤里。
+const FINAL_REPLY_TEXT = ' Call task_status in an earlier step, never in the reply that carries your final message: the chat shows a final message only when it has no tool calls.'
 
 export const promptText = (c) => BASE_PROMPT + (c.undeclaredMinutes > 0 ? optionalStatusText(c) : requiredStatusText(c))
 
 const requiredStatusText = (c) =>
   'Before you end a turn, call task_status as your last tool call. ' +
-  (c.concludeTurn ? 'Write your final message and call task_status in the same reply, as its only tool call: that ends the turn directly, so do not repeat the message afterwards. ' : '') +
+  (c.concludeTurn ? 'Write your final message and call task_status in the same reply, as its only tool call: that ends the turn directly, so do not repeat the message afterwards. ' : FINAL_REPLY_TEXT.trim() + ' ') +
   'Use state "done" when the request is finished or you only answered something. ' +
   'Use state "asking" when you end the turn because you still need the user\'s answer to a question you asked; their answer starts a new turn. ' +
   'Use state "waiting" when you end the turn while work you still need is running, with waiting_for (job ids and what they do) and expected_minutes; ' +

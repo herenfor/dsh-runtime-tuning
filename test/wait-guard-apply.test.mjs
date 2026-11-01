@@ -31,16 +31,23 @@ function fakeHost(config) {
   }
 }
 
-test('答复和唯一的 task_status 在同一条回复里：结束本轮', async () => {
-  const host = fakeHost()
+test('concludeTurn: true 时，答复和唯一的 task_status 在同一条回复里：结束本轮', async () => {
+  const host = fakeHost({ concludeTurn: true })
   host.reply({ type: 'text', text: '已完成。' }, { type: 'tool-call', id: 'c1' })
   const { value, concluded } = await host.call('c1', { state: 'done' })
   assert.equal(concluded, true)
   assert.match(value.text, /turn ends here/)
 })
 
+test('默认不结束：带工具调用的正文会被 DSH 界面收进折叠，回答要单独一步', async () => {
+  const fallback = fakeHost()
+  fallback.reply({ type: 'text', text: '已完成。' }, { type: 'tool-call', id: 'c1' })
+  assert.equal((await fallback.call('c1', { state: 'done' })).concluded, false)
+  assert.match(promptText({ undeclaredMinutes: 30 }), /never in the reply that carries your final message/)
+})
+
 test('同一步还有别的工具，或者 concludeTurn: false：不结束', async () => {
-  const mixed = fakeHost()
+  const mixed = fakeHost({ concludeTurn: true })
   mixed.reply({ type: 'text', text: '先看一下' }, { type: 'tool-call', id: 'b1' }, { type: 'tool-call', id: 'c1' })
   assert.equal((await mixed.call('c1', { state: 'done' })).concluded, false)
 
