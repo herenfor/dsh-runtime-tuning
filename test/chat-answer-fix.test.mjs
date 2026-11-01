@@ -61,6 +61,17 @@ test('L2：替身能加载官方服务端，并把写在 ui-chat 上的配置转
   assert.deepEqual(ui.configOf([{ options: { id: 'x' } }, { options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }]), { transcriptView: 'standard' })
   assert.equal(ui.configOf([]), undefined)
   assert.doesNotThrow(() => ui.Config({ transcriptView: 'standard' }))  // 和加载器一样先过官方 schema
+  // 加载器给的是已经过了 schema 的 config；官方那行带着用户设置时，不能把它再过一遍
+  const seen = []
+  const loaded = ui.Config(undefined)
+  const ctx = (entries) => ({ loader: { entries: () => entries } })
+  for (const entries of [
+    [{ options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }, { options: { id: 'runtime-tuning-ui-chat' } }],
+    [{ options: { id: 'runtime-tuning-ui-chat' } }],
+  ]) seen.push(ui.resolveConfig(ctx(entries), loaded))
+  assert.notEqual(seen[0], loaded)  // 按两行原始配置重新过了一次 schema，没有报错
+  assert.equal(seen[1], loaded)  // 官方那行没有配置：直接用加载器给的
+  assert.throws(() => ui.Config(loaded))  // 旧写法的问题：已经过了 schema 的 config 再过一遍会报错
 })
 
 test('替身真的在用才算：补丁打上、官方那行停用、我们这行启用', () => {
