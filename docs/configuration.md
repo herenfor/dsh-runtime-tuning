@@ -86,6 +86,17 @@ DSH 在 Linux 上给每条命令一个新的沙箱，工作区可写模式下 `/
 | `staleHours` | `24` | 启动时删除超过这么多小时没动过的旧目录 |
 | `baseDir` | 系统临时目录下的 `dsh-session-tmp-<uid>` | 对话目录放在哪里 |
 
+**fs-view**
+
+DSH 的 edit 要求文件先用 read 工具读过、且读后没变，否则报"file has not been read"或"file changed since it was read"，模型要先读一遍再重试。日常 77 个会话里这样失败了 46 次，大多是模型先用 bash 的 `sed` / `grep` 看过文件（不算读过），或用 python、`sed -i` 改过文件（版本变了）。
+
+edit 按 `old_string` 精确替换，还要求它在文件里唯一，原文对不上照样失败，所以这层"先读"对 edit 来说是重复的校验。插件在 edit 前把期望的文件版本换成当前版本，失败的那一步省掉。write 是整个文件覆盖，没有这层校验，仍然要求先读。每次替换在 `fs-view.log` 里记一条 `edit-synced`（`unread` 或 `stale`）。
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 关闭 |
+| `editSync` | `true` | 设为 `false` 时 edit 照旧要求先读 |
+
 **chat-answer-fix**（聊天界面）
 
 DSH 的聊天界面只把"不带工具调用的最后一步"当作回答显示。一轮如果是带着工具调用结束的（比如 wait-guard 的 `concludeTurn`），答复会被收进折叠的步骤里，要点开才看得到。插件包停用 profile 里自带的 `ui-chat` 这一行，插入 `runtime-tuning-ui-chat`（`ui-chat/index.mjs`）：它沿用官方包名，服务端原样转出官方实现，写在 `ui-chat` 上的配置（比如 `transcriptView`）照常生效；浏览器端是每次启动时从当前版本的官方文件生成的副本，只改这一个判定（已经结束的一轮，最后一步带工具调用也算回答）。找不到要改的那一行时原样使用官方文件，日志记 `unpatched`。

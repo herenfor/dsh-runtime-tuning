@@ -16,6 +16,8 @@
       name: ./plugins/secret-guard.mjs
     - id: runtime-tuning-session-tmp
       name: ./plugins/session-tmp.mjs
+    - id: runtime-tuning-fs-view
+      name: ./plugins/fs-view.mjs
     - id: runtime-tuning-net-log
       name: ./plugins/net-log.mjs
     - id: runtime-tuning-ui-chat
