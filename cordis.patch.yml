@@ -103,5 +103,6 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+          # 预设里的子插件按宿主的路径解析（官方子插件都写包名），所以这里也写包名加子路径
           - id: lean-prompt
-            name: ./plugins/lean-prompt.mjs
+            name: dsh-runtime-tuning/plugins/lean-prompt.mjs

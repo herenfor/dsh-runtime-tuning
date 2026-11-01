@@ -1,10 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { findHostPackage } from '../plugins/chat-answer-fix.mjs'
-import { TEXT, apply } from '../plugins/lean-prompt.mjs'
+
+process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'lean-'))
+const { findHostPackage } = await import('../plugins/chat-answer-fix.mjs')
+const { TEXT, apply } = await import('../plugins/lean-prompt.mjs')
 
 const patch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 const lean = patch.slice(patch.indexOf('- id: runtime-tuning-preset-lean'))
@@ -18,7 +20,7 @@ test('lean-prompt 只加一段执行规则', () => {
 
 test('精简预设去掉了定时、goal、计划模式、workflow 和 subagent_fork', () => {
   for (const gone of ['dsh-tool-schedule', 'dsh-tool-goal', 'dsh-command-goal', 'dsh-plan-mode', 'dsh-tool-workflow', 'dsh-workflow-ptc', 'provider: fork']) assert.equal(lean.includes(gone), false, gone)
-  assert.match(lean, /name: \.\/plugins\/lean-prompt\.mjs/)
+  assert.match(lean, /name: dsh-runtime-tuning\/plugins\/lean-prompt\.mjs/)
 })
 
 test('L2：预设引用的官方包在本机 DSH 里都存在（含子路径导出）', (t) => {
