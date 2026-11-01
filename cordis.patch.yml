@@ -20,15 +20,15 @@
       name: ./plugins/net-log.mjs
     - id: runtime-tuning-ui-chat
       name: ./ui-chat/index.mjs
-    # 精简预设（lean）：自己写的一份固定预设，用来和 standard 对比总耗时。
-    # 相比 standard 去掉了定时任务、goal、计划模式、workflow 和 subagent_fork，加了 lean-prompt 的执行规则；
+    # 调优预设（tuned）：自己写的一份固定预设，用来和 standard 对比把活干完的总耗时。
+    # 相比 standard 去掉了定时任务、goal、计划模式、workflow 和 subagent_fork，加了 tool-use-prompt 的工具使用规则（不限制思考）；
     # 留下的子插件配置与 DSH 0.2.1-rc.5 的 standard 相同。
-    - id: runtime-tuning-preset-lean
+    - id: runtime-tuning-preset-tuned
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: lean
-        name: 精简
-        description: 去掉日常编码用不到的工具，加一段少走步数的执行规则（dsh-runtime-tuning）
+        id: tuned
+        name: 调优
+        description: dsh-runtime-tuning 的调优模式：去掉日常编码用不到的工具，加一段用好工具的规则，思考不设限
         order: 2
         plugins:
           - id: persona
@@ -104,5 +104,5 @@
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
           # 预设里的子插件按宿主的路径解析（官方子插件都写包名），所以这里也写包名加子路径
-          - id: lean-prompt
-            name: dsh-runtime-tuning/plugins/lean-prompt.mjs
+          - id: tool-use-prompt
+            name: dsh-runtime-tuning/plugins/tool-use-prompt.mjs
