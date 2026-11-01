@@ -88,9 +88,16 @@ DSH 在 Linux 上给每条命令一个新的沙箱，工作区可写模式下 `/
 
 **chat-answer-fix**（聊天界面）
 
-DSH 的聊天界面只把"不带工具调用的最后一步"当作回答显示。一轮如果是带着工具调用结束的（比如 wait-guard 的 `concludeTurn`），答复会被收进折叠的步骤里，要点开才看得到。插件包把 profile 里 `ui-chat` 这一行换成 `ui-chat/index.mjs`：它沿用官方包名，服务端原样转出官方实现；浏览器端是每次启动时从当前版本的官方文件生成的副本，只改这一个判定（已经结束的一轮，最后一步带工具调用也算回答）。找不到要改的那一行时原样使用官方文件，日志记 `unpatched`。
+DSH 的聊天界面只把"不带工具调用的最后一步"当作回答显示。一轮如果是带着工具调用结束的（比如 wait-guard 的 `concludeTurn`），答复会被收进折叠的步骤里，要点开才看得到。插件包停用 profile 里自带的 `ui-chat` 这一行，插入 `runtime-tuning-ui-chat`（`ui-chat/index.mjs`）：它沿用官方包名，服务端原样转出官方实现，写在 `ui-chat` 上的配置（比如 `transcriptView`）照常生效；浏览器端是每次启动时从当前版本的官方文件生成的副本，只改这一个判定（已经结束的一轮，最后一步带工具调用也算回答）。找不到要改的那一行时原样使用官方文件，日志记 `unpatched`。
 
-如果你自己的 `cordis.patch.yml` 里 `ui-chat` 那一行写了 `name: "@deepseek-ai/dsh-client-ui-chat"`（改过聊天显示设置时会出现），它会盖掉插件包的替换，删掉 `name` 只留 `config` 即可。不想要这个替换，就在自己的补丁里写回这个 `name`。
+不想要这个替换，在自己的 `cordis.patch.yml` 里写：
+
+```yaml
+- id: ui-chat
+  disabled: false
+- id: runtime-tuning-ui-chat
+  disabled: true
+```
 
 **net-log**
 
