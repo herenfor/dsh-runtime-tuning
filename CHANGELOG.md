@@ -1,12 +1,14 @@
 # 更新记录
 
-## 未发布
+## 0.2.3 · 2026-11-01
 
+- 修复 chat-answer-fix（0.2.2 引入）：profile 里官方 `ui-chat` 带着用户设置（比如在设置里改过对话显示方式，写入 `transcriptView`）时，替身把加载器已经解析过的配置又过了一遍 schema，报 `$.collapseTiming expected "completion" | "next-input"`，聊天界面加载不出来，只剩工作区文件夹。现在合并两行的原始配置只解析一次，失败时退回加载器给的配置。用 0.2.2 的请尽快升级。
 - 新增 secret-files：凭据文件在沙箱里看不见（bwrap 下盖成一份说明为什么看不到的文件 / 只放说明的只读目录，Seatbelt 加 deny 规则），文件工具也拒绝读写。默认遮 DSH 的 API key、云服务和包仓库凭据；git 组（SSH 私钥、git 凭据、gh 登录）会影响推送，默认不开。Landlock 后端只有文件工具这一道。
 - session-tmp：文件工具（read、write、edit、read_image、glob、grep、present）里的 `/tmp` 路径也换成对话目录，结果里再换回 `/tmp`。以前 bash 写进 `/tmp` 的文件，read_image 读不到。
 - fs-view：read_image 按文件头认图片格式，扩展名不符（JPEG 存成 `.png`）时读一份扩展名正确的副本，不再拒绝。
 - 新增 fs-view：edit 前文件没用 read 读过、或读后被 shell 改过时，按当前版本照常替换，不再报错让模型读一遍再重试（edit 本身按原文精确匹配，对不上照样失败；write 仍要求先读）。77 个会话里这类失败有 46 次。
 - 新增调优预设（tuned）：自己写的一份固定预设，去掉定时任务、goal、计划模式、workflow 和 `subagent_fork`，加一段工具使用规则 `tool-use-prompt`（已经知道要什么就并行去拿、只读 shell 检查合并、多文件修改同一步完成），思考和验证都不限制。发行基线 23 步里多出来的步骤大多是"一步只查一样"，用它和 standard 对比把活干完的总耗时。
+- 在 DSH `0.2.1-rc.5` web profile 中实测：调优预设出现在模式里并加载规则；`curl` 进 `/tmp` 的图片 read_image 一次读到；扩展名不符的 JPEG 按 JPEG 读出；grep 搜凭据目录被拒；沙箱里 `cat` 凭据文件读到说明（软链接、`cp`、`tar`、python、`env -i`、`dd` 同样，硬链接建不出来）。edit 未读即改只做了自动测试，真实会话里还没触发过。
 
 ## 0.2.2 · 2026-11-01
 
