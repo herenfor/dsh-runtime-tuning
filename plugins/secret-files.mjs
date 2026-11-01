@@ -2,12 +2,14 @@
 // DSH 的沙箱把整个文件系统只读挂进去（bwrap 的 --ro-bind / /），只限制写、不限制读，沙箱里还能联网；
 // 换句话说用户能读的凭据（云服务密钥、DSH 自己的 API key、git 凭据）命令都能读到。secret-guard 只能在结果里按格式打码。
 // 两道：
-// - 命令：在 sandbox.confine 的结果里追加遮挡。bwrap 用空文件 / 只读空目录盖住；Seatbelt（macOS）在规则末尾追加 deny file-read*。
+// - 命令：在 sandbox.confine 的结果里追加遮挡。bwrap 下文件盖成一份说明（为什么看不到、该怎么办），目录盖成只读的空目录、里面只放这份说明；
+//   不用 /dev/null：bwrap 的绑定挂载带 nodev，打开会报 Permission denied，模型会以为是工作区沙箱不让读工作区外的文件。
+//   Seatbelt（macOS）在规则末尾追加 deny file-read*。
 //   Landlock 等只能列允许路径的后端没法排除子路径，原样放行并记 unsupported，只剩文件工具这一道。
 // - 文件工具：read / read_image / write / edit 的目标、grep 的搜索目录落在遮挡的路径上（或是它的上级）时拒绝。glob 只列文件名，不拦。
 // 默认只遮 dsh / cloud / registry 三组：这些凭据日常编码用不到。git 组（SSH 私钥、git 凭据、gh 登录）会让 push 失败，默认不开。
-import { realpathSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { chmodSync, mkdirSync, realpathSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { createRecorder } from './log.mjs'
 
@@ -16,6 +18,19 @@ export const name = 'dsh-runtime-tuning-secret-files'
 const DEFAULTS = { enabled: true, groups: ['dsh', 'cloud', 'registry'], extraPaths: [], allowPaths: [] }
 const record = createRecorder('secret-files.log')
 const CACHE_MS = 60_000
+export const NOTE_NAME = 'HIDDEN-BY-DSH.txt'
+export const NOTE_TEXT = '# This path holds credentials and is hidden from commands the agent runs (dsh-runtime-tuning secret-files).\n' +
+  '# If the task really needs it, ask the user to run that step themselves.\n'
+
+/** 写一份只读的说明文件，给 bwrap 盖在凭据上。 */
+export function writeNote(dir = join(tmpdir(), `dsh-secret-files-${process.getuid?.() ?? 'user'}`)) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const file = join(dir, NOTE_NAME)
+  try { chmodSync(file, 0o600) } catch {}
+  writeFileSync(file, NOTE_TEXT, { mode: 0o444 })
+  chmodSync(file, 0o444)
+  return file
+}
 
 // 相对用户目录的路径；Windows 一侧（WSL 下的 /mnt/c/Users/*）用 windows 里的写法
 export const GROUPS = {
@@ -70,14 +85,16 @@ export const within = (path, root) => { const rel = relative(root, path); return
 
 const sbpl = (path) => `"${path.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
 
-/** 在沙箱参数里追加遮挡；认不出后端时返回 undefined。 */
-export function maskArgv(argv, targets) {
+/** 在沙箱参数里追加遮挡；认不出后端时返回 undefined。note 是盖在凭据上的说明文件。 */
+export function maskArgv(argv, targets, note) {
   const sepAt = argv.indexOf('--')
   if (sepAt < 0 || targets.length === 0) return undefined
   const head = argv.slice(0, sepAt)
   const isBwrap = head.some((a, i) => a === '--ro-bind' && head[i + 1] === '/' && head[i + 2] === '/')
   if (isBwrap) {
-    const extra = targets.flatMap((t) => (t.dir ? ['--tmpfs', t.path, '--remount-ro', t.path] : ['--ro-bind', '/dev/null', t.path]))
+    const extra = targets.flatMap((t) => (t.dir
+      ? ['--tmpfs', t.path, '--ro-bind', note, join(t.path, NOTE_NAME), '--remount-ro', t.path]
+      : ['--ro-bind', note, t.path]))
     return [...head, ...extra, ...argv.slice(sepAt)]
   }
   const p = head.indexOf('-p')
@@ -135,6 +152,8 @@ export function apply(ctx, config) {
     const sandbox = sctx.sandbox
     const original = sandbox?.confine
     if (typeof original !== 'function') return record({ event: 'unavailable', reason: 'sandbox.confine missing' })
+    let note
+    try { note = writeNote() } catch (error) { return record({ event: 'unavailable', reason: `note file: ${error}` }) }
     record({ event: 'armed', targets: targets().length })
     const wrapped = async function (argv, policy, signal) {
       const result = await original.call(this, argv, policy, signal)
@@ -142,7 +161,7 @@ export function apply(ctx, config) {
         if (!Array.isArray(result?.argv)) return result
         const list = targets()
         if (list.length === 0) return result
-        const next = maskArgv(result.argv, list)
+        const next = maskArgv(result.argv, list, note)
         if (next === undefined) {
           const backend = String(result.argv[0] ?? '').split(/[\\/]/).pop()
           if (!notedBackends.has(backend)) { notedBackends.add(backend); record({ event: 'unsupported', backend, reason: 'only file tools are guarded on this sandbox backend' }) }

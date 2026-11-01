@@ -78,7 +78,7 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 
 DSH 的沙箱只限制写、不限制读：整个文件系统只读挂进去，沙箱里还能联网，用户能读的凭据文件命令都能读到。secret-guard 只能在结果里按格式打码，模型换个编码输出就认不出了。这个插件让凭据文件在沙箱里直接看不见，文件工具也读不到：
 
-- 命令：bwrap（Linux）下文件盖成空文件、目录盖成只读的空目录；Seatbelt（macOS）在规则末尾加 `deny file-read*`（macOS 上还没有实测）。Landlock 这类只能列"允许读哪里"的沙箱没法排除子路径，原样放行，日志里记一条 `unsupported`，只剩文件工具这一道。
+- 命令：bwrap（Linux）下文件盖成一份两行的说明（这里是凭据、对 agent 隐藏、需要时请用户自己做），目录盖成只读的空目录、里面只放这份说明 `HIDDEN-BY-DSH.txt`。读到的人一眼知道原因，不会误以为是工作区沙箱不让读工作区外的文件；Seatbelt（macOS）在规则末尾加 `deny file-read*`（macOS 上还没有实测）。Landlock 这类只能列"允许读哪里"的沙箱没法排除子路径，原样放行，日志里记一条 `unsupported`，只剩文件工具这一道。
 - 文件工具：read、read_image、write、edit 的目标落在这些路径上时拒绝；grep 的搜索目录是它们的上级时也拒绝（DSH 的 grep 会搜隐藏文件）。glob 只列文件名，不拦。
 
 按组列路径，只遮实际存在的，WSL 下还会遮 `/mnt/c/Users/*` 里 Windows 那一份：

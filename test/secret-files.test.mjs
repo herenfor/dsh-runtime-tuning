@@ -7,18 +7,18 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'secret-files-home-'))
-const { apply, blockedTarget, candidatePaths, existingTargets, maskArgv } = await import('../plugins/secret-files.mjs')
+const { apply, blockedTarget, candidatePaths, existingTargets, maskArgv, NOTE_TEXT } = await import('../plugins/secret-files.mjs')
 const session = await import('../plugins/session-tmp.mjs')
 const linuxOnly = { skip: process.platform !== 'linux' && 'bwrap is Linux-only' }
 
 const BWRAP = ['bwrap', '--ro-bind', '/', '/', '--dev', '/dev', '--tmpfs', '/tmp', '--bind', '/ws', '/ws', '--', 'bash', '-c', 'x']
 const targets = [{ path: '/h/.aws/credentials', dir: false }, { path: '/h/.config/gcloud', dir: true }]
 
-test('bwrap：文件盖空文件、目录盖只读空目录，都加在 -- 之前', () => {
-  assert.deepEqual(maskArgv(BWRAP, targets), [
+test('bwrap：文件盖成说明、目录盖成只放说明的只读目录，都加在 -- 之前', () => {
+  assert.deepEqual(maskArgv(BWRAP, targets, '/n/HIDDEN-BY-DSH.txt'), [
     ...BWRAP.slice(0, 11),
-    '--ro-bind', '/dev/null', '/h/.aws/credentials',
-    '--tmpfs', '/h/.config/gcloud', '--remount-ro', '/h/.config/gcloud',
+    '--ro-bind', '/n/HIDDEN-BY-DSH.txt', '/h/.aws/credentials',
+    '--tmpfs', '/h/.config/gcloud', '--ro-bind', '/n/HIDDEN-BY-DSH.txt', '/h/.config/gcloud/HIDDEN-BY-DSH.txt', '--remount-ro', '/h/.config/gcloud',
     '--', 'bash', '-c', 'x',
   ])
 })
@@ -94,9 +94,9 @@ test('L2：真实 DSH 沙箱 + bwrap，和 session-tmp 一起装：凭据读不�
       const { argv } = await ctx.sandbox.confine(['bash', '-c', command], { mode: 'workspace-write', workspaceRoot, sessionId: 's' })
       return spawnSync(argv[0], argv.slice(1), { encoding: 'utf8' })
     }
-    const r = await run(`cat ${root}/key; ls -A ${root}/vault | wc -l; cat ${root}/plain; echo t > /tmp/t; touch ${root}/vault/x 2>/dev/null || echo ro`)
+    const r = await run(`set -e; cat ${root}/key; ls -A ${root}/vault; cat ${root}/plain; echo t > /tmp/t; touch ${root}/vault/x 2>/dev/null || echo ro`)
     assert.equal(r.status, 0, r.stderr)
-    assert.equal(r.stdout, '0\nvisible\nro\n')
+    assert.equal(r.stdout, `${NOTE_TEXT}HIDDEN-BY-DSH.txt\nvisible\nro\n`)
     assert.equal((await run('cat /tmp/t')).stdout, 't\n')
   } finally {
     spawnSync('rm', ['-rf', root])
