@@ -1,9 +1,10 @@
 # dsh-runtime-tuning bundle patch。每个子插件一个独立 id，可在自己的 cordis.patch.yml 里单独关掉或改配置：
 #   - id: runtime-tuning-ask-nonblocking
 #     disabled: true
-# ui-chat 是 DSH 自带的聊天界面这一行，这里换成 chat-answer-fix 的替身（沿用官方包名，只改回答的判定）。
+# DSH 自带的聊天界面（ui-chat）停用，换成下面插入的 chat-answer-fix 替身：沿用官方包名，只改回答的判定。
+# 按 id 打的补丁里 name 只用来核对，不能换模块，所以是停用加插入。写在 ui-chat 上的配置由替身转交。
 - id: ui-chat
-  name: ./ui-chat/index.mjs
+  disabled: true
 - insert:
     - id: runtime-tuning-wait-guard
       name: ./plugins/wait-guard.mjs
@@ -17,3 +18,5 @@
       name: ./plugins/session-tmp.mjs
     - id: runtime-tuning-net-log
       name: ./plugins/net-log.mjs
+    - id: runtime-tuning-ui-chat
+      name: ./ui-chat/index.mjs

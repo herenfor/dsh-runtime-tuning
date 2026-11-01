@@ -52,3 +52,13 @@ test('L2：从本机正在用的官方聊天界面生成替身，只差那一行
   assert.ok(existsSync(result.officialIndex))
   assert.deepEqual(readdirSync(out).sort(), ['client.js', 'package.json'])
 })
+
+test('L2：替身能加载官方服务端，并把写在 ui-chat 上的配置转交过去', async (t) => {
+  if (!existsSync(join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js'))) return t.skip('host dsh-cli install absent')
+  process.argv[1] = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
+  const ui = await import('../ui-chat/index.mjs')
+  assert.equal(typeof ui.apply, 'function')
+  assert.deepEqual(ui.configOf([{ options: { id: 'x' } }, { options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }]), { transcriptView: 'standard' })
+  assert.equal(ui.configOf([]), undefined)
+  assert.doesNotThrow(() => ui.Config({ transcriptView: 'standard' }))  // 和加载器一样先过官方 schema
+})
