@@ -1,9 +1,10 @@
 # 更新记录
 
-## 未发布
+## 0.2.2 · 2026-11-01
 
 - 新增 chat-answer-fix：DSH 聊天界面只把不带工具调用的最后一步当作回答，wait-guard 用 `concludeTurn` 直接结束的一轮，答复被收进了折叠的步骤里。插件包停用自带的 `ui-chat` 这一行、插入替身：沿用官方包名、转交原来的配置，浏览器端每次启动时从当前版本的官方文件生成，只改这一个判定；找不到时原样使用官方文件。
 - wait-guard：`concludeTurn` 默认改为 `'auto'`，只在 chat-answer-fix 生效时直接结束这一轮；否则提示模型把 `task_status` 放在更早的一步。
+- 在 DSH `0.2.1-rc.5` web profile 中实测：聊天界面替身正常加载；`task_status` 和答复同条、直接结束的一轮，答复显示在折叠外面；`concludeTurn: 'auto'` 按 profile 里两行的启用情况解析为开启。
 
 ## 0.2.1 · 2026-10-31
 
