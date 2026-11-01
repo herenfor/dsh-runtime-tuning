@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- 新增 secret-files：凭据文件在沙箱里看不见（bwrap 盖空文件 / 只读空目录，Seatbelt 加 deny 规则），文件工具也拒绝读写。默认遮 DSH 的 API key、云服务和包仓库凭据；git 组（SSH 私钥、git 凭据、gh 登录）会影响推送，默认不开。Landlock 后端只有文件工具这一道。
 - session-tmp：文件工具（read、write、edit、read_image、glob、grep、present）里的 `/tmp` 路径也换成对话目录，结果里再换回 `/tmp`。以前 bash 写进 `/tmp` 的文件，read_image 读不到。
 - fs-view：read_image 按文件头认图片格式，扩展名不符（JPEG 存成 `.png`）时读一份扩展名正确的副本，不再拒绝。
 - 新增 fs-view：edit 前文件没用 read 读过、或读后被 shell 改过时，按当前版本照常替换，不再报错让模型读一遍再重试（edit 本身按原文精确匹配，对不上照样失败；write 仍要求先读）。77 个会话里这类失败有 46 次。

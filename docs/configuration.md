@@ -74,6 +74,32 @@ dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 
 目前识别的凭据格式：GitHub 令牌（`github_pat_`、`ghp_`、`gho_`、`ghu_`、`ghs_`、`ghr_`）和 `sk-` 开头的 API key。用户直接在聊天框里粘贴的内容不经过工具，secret-guard 管不到。
 
+**secret-files**
+
+DSH 的沙箱只限制写、不限制读：整个文件系统只读挂进去，沙箱里还能联网，用户能读的凭据文件命令都能读到。secret-guard 只能在结果里按格式打码，模型换个编码输出就认不出了。这个插件让凭据文件在沙箱里直接看不见，文件工具也读不到：
+
+- 命令：bwrap（Linux）下文件盖成空文件、目录盖成只读的空目录；Seatbelt（macOS）在规则末尾加 `deny file-read*`（macOS 上还没有实测）。Landlock 这类只能列"允许读哪里"的沙箱没法排除子路径，原样放行，日志里记一条 `unsupported`，只剩文件工具这一道。
+- 文件工具：read、read_image、write、edit 的目标落在这些路径上时拒绝；grep 的搜索目录是它们的上级时也拒绝（DSH 的 grep 会搜隐藏文件）。glob 只列文件名，不拦。
+
+按组列路径，只遮实际存在的，WSL 下还会遮 `/mnt/c/Users/*` 里 Windows 那一份：
+
+| 组 | 路径（相对用户目录） | 默认 |
+|---|---|---|
+| `dsh` | `.dsh/.credentials.yaml`（`DSH_HOME` 改过时跟着走） | 开 |
+| `cloud` | `.aws/credentials`、`.config/gcloud`、`.azure`、`.kube/config`、`.docker/config.json` | 开 |
+| `registry` | `.cargo/credentials.toml`、`.cargo/credentials`、`.pypirc` | 开 |
+| `git` | `.ssh`、`.git-credentials`、`.netrc`、`.config/gh/hosts.yml` | 关：打开后沙箱里的 `git push`、`gh` 会失败 |
+| `npm` | `.npmrc` | 关：私有源的令牌常在这里，装包时要用 |
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 关闭 |
+| `groups` | `['dsh', 'cloud', 'registry']` | 遮哪几组 |
+| `extraPaths` | `[]` | 另外要遮的绝对路径（文件或目录） |
+| `allowPaths` | `[]` | 放行的路径，在它下面的都不遮 |
+
+已知的缺口：git 组默认不开，gh 的登录信息仍然读得到（命令要用它推送）；环境变量里的凭据（比如 `GH_TOKEN`）不在管辖范围内。
+
 **session-tmp**（只在 Linux 上生效）
 
 DSH 在 Linux 上给每条命令一个新的沙箱，工作区可写模式下 `/tmp` 是一块用完就丢的内存盘，上一条命令写进 `/tmp` 的文件，下一条就找不到了。这个插件让同一个对话（包括它的子代理）的命令共用一个 `/tmp`：每个对话一个权限为 700 的目录，挂到沙箱的 `/tmp` 上。别的对话和宿主的 `/tmp` 仍然看不到。DSH 退出时删除这些目录，启动时清理上次异常退出留下的旧目录。
