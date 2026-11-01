@@ -2,6 +2,8 @@
 
 ## 未发布
 
+- session-tmp：文件工具（read、write、edit、read_image、glob、grep、present）里的 `/tmp` 路径也换成对话目录，结果里再换回 `/tmp`。以前 bash 写进 `/tmp` 的文件，read_image 读不到。
+- fs-view：read_image 按文件头认图片格式，扩展名不符（JPEG 存成 `.png`）时读一份扩展名正确的副本，不再拒绝。
 - 新增 fs-view：edit 前文件没用 read 读过、或读后被 shell 改过时，按当前版本照常替换，不再报错让模型读一遍再重试（edit 本身按原文精确匹配，对不上照样失败；write 仍要求先读）。77 个会话里这类失败有 46 次。
 - 新增调优预设（tuned）：自己写的一份固定预设，去掉定时任务、goal、计划模式、workflow 和 `subagent_fork`，加一段工具使用规则 `tool-use-prompt`（已经知道要什么就并行去拿、只读 shell 检查合并、多文件修改同一步完成），思考和验证都不限制。发行基线 23 步里多出来的步骤大多是"一步只查一样"，用它和 standard 对比把活干完的总耗时。
 

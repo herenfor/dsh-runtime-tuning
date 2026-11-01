@@ -4,6 +4,9 @@
 // DSH 的 Windows 那一支已经给每个会话一个私有临时目录；这里在 Linux 上补齐：包一层 sandbox.confine，
 // 把 --tmpfs /tmp 换成 --bind <对话目录> /tmp。子代理按 parentSession 归到根会话，和父会话共用一个目录。
 // 隔离不变：别的对话和宿主的 /tmp 仍然看不到。找不到预期参数（DSH 改了实现、不是 bwrap、只读模式）就原样放行。
+// 文件工具（read / write / edit / read_image / glob / grep / present）不进沙箱，看到的是宿主的 /tmp：
+// bash 里 curl -o /tmp/x.png 之后 read_image /tmp/x.png 必然找不到。工作区可写时把这些工具参数里的 /tmp
+// 换成同一个对话目录，结果里的对话目录再换回 /tmp，模型只看到一个 /tmp。
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +14,7 @@ import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-runtime-tuning-session-tmp'
 
-const DEFAULTS = { enabled: true, staleHours: 24 }
+const DEFAULTS = { enabled: true, staleHours: 24, fileTools: true }
 const record = createRecorder('session-tmp.log')
 
 export const baseDir = () => join(tmpdir(), `dsh-session-tmp-${process.getuid?.() ?? 'user'}`)
@@ -42,6 +45,46 @@ export function createRoots() {
     },
   }
 }
+
+export const FILE_TOOLS = { read: ['file_path'], write: ['file_path'], edit: ['file_path'], read_image: ['file_path'], glob: ['path'], grep: ['path'], present: ['files'] }
+
+/** /tmp 或 /tmp/... 换成 dir 下的同名路径；已经在 dir 里的、别的路径原样返回。 */
+export const toSessionPath = (path, dir) =>
+  typeof path !== 'string' || path === dir || path.startsWith(`${dir}/`) ? path
+    : path === '/tmp' ? dir : path.startsWith('/tmp/') ? join(dir, path.slice(5)) : path
+
+/** 把文件工具参数里的 /tmp 路径换成对话目录；没有要换的返回 undefined。 */
+export function mapToolArgs(name, args, dir) {
+  const keys = FILE_TOOLS[name]
+  if (keys === undefined || args === null || typeof args !== 'object') return undefined
+  let changed = false
+  const next = { ...args }
+  for (const key of keys) {
+    const value = args[key]
+    const mapped = Array.isArray(value) ? value.map((v) => toSessionPath(v, dir)) : toSessionPath(value, dir)
+    if (Array.isArray(value) ? mapped.some((v, i) => v !== value[i]) : mapped !== value) { next[key] = mapped; changed = true }
+  }
+  return changed ? next : undefined
+}
+
+/**
+ * 把值里所有字符串中的 from 换成 to。只进普通对象和数组（图片字节、类实例原样保留），没有变化的部分不复制。
+ */
+export function replaceInStrings(value, from, to) {
+  if (typeof value === 'string') return value.includes(from) ? value.split(from).join(to) : value
+  if (Array.isArray(value)) {
+    const next = value.map((v) => replaceInStrings(v, from, to))
+    return next.some((v, i) => v !== value[i]) ? next : value
+  }
+  if (value === null || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return value
+  let changed = false
+  const next = {}
+  for (const [k, v] of Object.entries(value)) { next[k] = replaceInStrings(v, from, to); if (next[k] !== v) changed = true }
+  return changed ? next : value
+}
+
+/** 结果里的对话目录换回 /tmp，模型不会拿到一个 bash 里不存在的路径。 */
+export const unmapResult = (value, dir) => replaceInStrings(value, dir, '/tmp')
 
 /** 清掉上次异常退出留下的、超过 staleHours 没动过的目录。只碰 base 下面的直接子目录。 */
 export function sweepStale(base, staleHours, now = Date.now()) {
@@ -74,7 +117,41 @@ export function apply(ctx, config = {}) {
     return dir
   }
 
-  ctx.on('session/event', (session) => { try { roots.note(session) } catch {} })
+  const modes = new Map()
+  const modeOf = (sessionId) => modes.get(sessionId) ?? modes.get(roots.rootOf(sessionId))
+  ctx.on('session/event', (session, event) => {
+    try {
+      roots.note(session)
+      if (event?.type === 'sandbox/mode' && typeof event.data?.mode === 'string') modes.set(session.id, event.data.mode)
+    } catch {}
+  })
+
+  ctx.on('tools/execute', async (exec, next) => {
+    let dir
+    try {
+      const sessionId = exec.agent?.session?.id
+      if (c.fileTools && typeof sessionId === 'string' && modeOf(sessionId) === 'workspace-write') {
+        dir = dirFor(sessionId)
+        const mapped = mapToolArgs(exec.name, exec.arguments, dir)
+        if (mapped === undefined) dir = undefined
+        else { exec.arguments = mapped; record({ event: 'mapped', tool: exec.name, session: sessionId }) }
+      }
+    } catch (error) {
+      dir = undefined
+      record({ event: 'map-failed', tool: exec?.name, error: String(error) })
+    }
+    let result
+    try {
+      result = await next()
+    } catch (error) {
+      if (dir !== undefined && typeof error?.message === 'string' && error.message.includes(dir)) {
+        try { error.message = unmapResult(error.message, dir) } catch {}
+      }
+      throw error
+    }
+    if (dir === undefined) return result
+    try { return unmapResult(result, dir) } catch { return result }
+  })
 
   ctx.inject(['sandbox'], (sctx) => {
     const sandbox = sctx.sandbox
@@ -84,6 +161,7 @@ export function apply(ctx, config = {}) {
     const wrapped = async function (argv, policy, signal) {
       const result = await original.call(this, argv, policy, signal)
       try {
+        if (typeof policy?.sessionId === 'string' && typeof policy.mode === 'string') modes.set(policy.sessionId, policy.mode)
         if (policy?.mode !== 'workspace-write' || typeof policy.sessionId !== 'string' || !Array.isArray(result?.argv)) return result
         const next = rebindTmp(result.argv, dirFor(policy.sessionId))
         if (next === undefined) {

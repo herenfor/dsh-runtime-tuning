@@ -85,6 +85,9 @@ DSH 在 Linux 上给每条命令一个新的沙箱，工作区可写模式下 `/
 | `enabled` | `true` | 设为 `false` 关闭 |
 | `staleHours` | `24` | 启动时删除超过这么多小时没动过的旧目录 |
 | `baseDir` | 系统临时目录下的 `dsh-session-tmp-<uid>` | 对话目录放在哪里 |
+| `fileTools` | `true` | 文件工具里的 `/tmp` 路径也换成对话目录（见下） |
+
+文件工具（read、write、edit、read_image、glob、grep、present）不进沙箱，看到的是宿主的 `/tmp`：bash 里 `curl -o /tmp/x.png` 之后 `read_image /tmp/x.png` 必然找不到。工作区可写的对话里，插件把这些工具参数里的 `/tmp` 路径换成同一个对话目录，结果和报错里的对话目录再换回 `/tmp`，模型只看到一个 `/tmp`。每次替换在 `session-tmp.log` 里记一条 `mapped`。
 
 **fs-view**
 
@@ -96,6 +99,9 @@ edit 按 `old_string` 精确替换，还要求它在文件里唯一，原文对�
 |---|---|---|
 | `enabled` | `true` | 设为 `false` 关闭 |
 | `editSync` | `true` | 设为 `false` 时 edit 照旧要求先读 |
+| `imageSniff` | `true` | read_image 按文件头认格式（见下） |
+
+read_image 先按扩展名定格式，字节对不上就拒绝，比如 curl 下来的 JPEG 存成了 `.png`，模型得改名再读。插件按文件头认出真实格式（PNG、JPEG、GIF、WebP），和扩展名不一致时复制一份扩展名正确的副本给它读，读完删掉，结果里的路径仍是原文件。每次在 `fs-view.log` 里记一条 `image-retyped`。
 
 **chat-answer-fix**（聊天界面）
 

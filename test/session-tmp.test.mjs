@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'session-tmp-home-'))
-const { apply, createRoots, rebindTmp, sweepStale } = await import('../plugins/session-tmp.mjs')
+const { apply, createRoots, mapToolArgs, rebindTmp, sweepStale, toSessionPath, unmapResult } = await import('../plugins/session-tmp.mjs')
 const linuxOnly = { skip: process.platform !== 'linux' && 'bwrap /tmp rebinding is Linux-only' }
 
 test('rebindTmp 只换 -- 之前的 --tmpfs /tmp；没有时返回 undefined', () => {
@@ -34,6 +34,28 @@ test('sweepStale 只删超过时限的子目录', () => {
   const past = new Date(Date.now() - 48 * 3_600_000); utimesSync(join(base, 'old'), past, past)
   assert.equal(sweepStale(base, 24), 1)
   assert.deepEqual(readdirSync(base), ['new'])
+})
+
+test('文件工具的 /tmp 参数换成对话目录，别的路径和已换过的不动', () => {
+  const dir = '/tmp/dsh-session-tmp-1000/s1'
+  assert.equal(toSessionPath('/tmp/a/b.png', dir), `${dir}/a/b.png`)
+  assert.equal(toSessionPath('/tmp', dir), dir)
+  assert.equal(toSessionPath(`${dir}/x`, dir), `${dir}/x`)
+  for (const p of ['/tmpfoo/x', 'tmp/x', '/home/u/tmp/x']) assert.equal(toSessionPath(p, dir), p)
+  assert.deepEqual(mapToolArgs('read_image', { file_path: '/tmp/x.png' }, dir), { file_path: `${dir}/x.png` })
+  assert.deepEqual(mapToolArgs('present', { files: ['/tmp/a', 'src/b'] }, dir), { files: [`${dir}/a`, 'src/b'] })
+  assert.equal(mapToolArgs('read', { file_path: 'src/a.ts' }, dir), undefined)
+  assert.equal(mapToolArgs('bash', { command: 'cat /tmp/x' }, dir), undefined)
+})
+
+test('结果里的对话目录换回 /tmp；字节和没变的对象原样', () => {
+  const dir = '/tmp/dsh-session-tmp-1000/s1'
+  const bytes = new Uint8Array([1, 2])
+  const same = { content: [{ type: 'text', text: 'ok' }] }
+  const out = unmapResult({ content: [{ type: 'text', text: `<path>${dir}/x.png</path>` }], data: bytes }, dir)
+  assert.equal(out.content[0].text, '<path>/tmp/x.png</path>')
+  assert.equal(out.data, bytes)
+  assert.equal(unmapResult(same, dir), same)
 })
 
 function fakeHost(config) {
@@ -93,4 +115,21 @@ test('L2：真实 DSH 沙箱里，同一对话的两条命令共用 /tmp，别�
   await scope.dispose()
   await new Promise((r) => setTimeout(r, 20))
   assert.deepEqual(readdirSync(base), [])
+})
+
+test('apply：工作区可写的对话里，read_image /tmp 读到 bash 写进的文件，结果里仍是 /tmp；只读模式不换', linuxOnly, async () => {
+  const h = fakeHost()
+  h.handlers['session/event']({ id: 'root', header: {} }, { type: 'sandbox/mode', data: { mode: 'workspace-write' } })
+  h.handlers['session/event']({ id: 'ro', header: {} }, { type: 'sandbox/mode', data: { mode: 'read-only' } })
+  const dir = (await h.sandbox.confine(['ls'], { mode: 'workspace-write', sessionId: 'root' })).argv[2]
+  const exec = { name: 'read_image', arguments: { file_path: '/tmp/x.png' }, agent: { session: { id: 'root' } } }
+  const result = await h.handlers['tools/execute'](exec, async () => ({ content: [{ type: 'text', text: `read ${exec.arguments.file_path}` }] }))
+  assert.equal(exec.arguments.file_path, join(dir, 'x.png'))
+  assert.equal(result.content[0].text, 'read /tmp/x.png')
+  const missing = { name: 'read', arguments: { file_path: '/tmp/y' }, agent: { session: { id: 'root' } } }
+  await assert.rejects(h.handlers['tools/execute'](missing, async () => { throw new Error(`cannot read "${missing.arguments.file_path}": not found`) }), { message: 'cannot read "/tmp/y": not found' })
+  const ro = { name: 'read', arguments: { file_path: '/tmp/x' }, agent: { session: { id: 'ro' } } }
+  await h.handlers['tools/execute'](ro, async () => ({}))
+  assert.equal(ro.arguments.file_path, '/tmp/x')
+  h.dispose()
 })
