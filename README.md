@@ -4,7 +4,7 @@
 [![DSH](https://img.shields.io/badge/DSH-0.2.x-blue)](docs/configuration.md#使用环境)
 [![测试](https://github.com/herenfor/dsh-runtime-tuning/actions/workflows/test.yml/badge.svg)](https://github.com/herenfor/dsh-runtime-tuning/actions/workflows/test.yml)
 
-一个关于 agent 运行时的长期实验：从 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的真实会话记录里找出时间花在了哪里、哪些是白白浪费的，再尽量用插件把它修掉，并且每一项都用数据验证。
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）主程序内部的调优插件：工具执行、文件工具、沙箱与凭据保护、聊天界面的修复和优化，每一项都用真实会话数据验证。任务提醒、托盘启动和崩溃防护在 [dsh-sentinel](https://github.com/herenfor/dsh-sentinel)。
 
 这里既是一组可以安装的 DSH 插件，也是这个过程的记录。随着分析推进，插件会不断增加。
 
