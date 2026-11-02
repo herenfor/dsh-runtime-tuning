@@ -16,6 +16,18 @@ test('只在要改的那一行恰好出现一次时替换', () => {
   assert.deepEqual(patchClient(SETTINGS_ANCHOR), { text: SETTINGS_REPLACEMENT, patched: false, settings: true })
 })
 
+test('先按 Node 的模块解析从 dsh 入口找：不是 pnpm 安装（比如 npm 全局装、打包进应用）也能找到', () => {
+  const bin = '/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js'
+  const fs = { realpathSync: (p) => p, existsSync: () => false, readdirSync: () => [] }
+  const resolve = (from, request) => {
+    assert.equal(from, bin)
+    return `/usr/lib/node_modules/${request}`
+  }
+  assert.equal(findHostPackage(bin, 'dsh-client-ui-chat', fs, resolve), '/usr/lib/node_modules/@deepseek-ai/dsh-client-ui-chat')
+  // 解析不到时不报 Node 的错，接着用下面两种找法；都找不到才报
+  assert.throws(() => findHostPackage(bin, 'dsh-client-ui-chat', fs, () => { throw new Error('MODULE_NOT_FOUND') }), /not a pnpm install/)
+})
+
 test('先用 dsh 旁边链接的那一份，没有再在仓库里找唯一的一份', () => {
   const bin = '/s/.pnpm/@deepseek-ai+dsh@1_x/node_modules/@deepseek-ai/dsh/lib/bin.js'
   const sibling = '/s/.pnpm/@deepseek-ai+dsh@1_x/node_modules/@deepseek-ai/dsh-client-ui-chat'

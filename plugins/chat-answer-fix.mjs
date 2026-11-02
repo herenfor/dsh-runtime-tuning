@@ -7,6 +7,7 @@
 // 显示设置的命名空间换成我们这一行的 id（见下面 SETTINGS_ANCHOR）。
 // 找不到要改的那一行（官方改了实现），就原样复制官方文件，效果和没装一样。
 import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRecorder } from './log.mjs'
@@ -33,9 +34,13 @@ export function patchClient(source) {
   return { text: settings.text, patched: answer.done, settings: settings.done }
 }
 
-/** 正在运行的 dsh 用的那一份官方包：先找 dsh 旁边的链接，再在 pnpm 仓库里找（多份时取与 dsh 同版本的）。 */
-export function findHostPackage(entryScript, pkg, fs = { realpathSync, readdirSync, existsSync }) {
+const nodeResolve = (from, request) => createRequire(from).resolve(request)
+
+/** 正在运行的 dsh 用的那一份官方包：先按 Node 的模块解析从 dsh 入口找（npm、pnpm 等安装方式都适用），
+ *  再找 dsh 旁边的链接，最后在 pnpm 仓库里找（多份时取与 dsh 同版本的）。 */
+export function findHostPackage(entryScript, pkg, fs = { realpathSync, readdirSync, existsSync }, resolve = nodeResolve) {
   const bin = fs.realpathSync(entryScript)
+  try { return dirname(fs.realpathSync(resolve(bin, `@deepseek-ai/${pkg}/package.json`))) } catch {}
   const scope = '/node_modules/@deepseek-ai/'
   const own = bin.lastIndexOf(scope)
   if (own >= 0) {
