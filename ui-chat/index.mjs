@@ -1,32 +1,49 @@
 // 聊天界面的替身（见 ../plugins/chat-answer-fix.mjs）：生成浏览器那一半，服务端那一半原样转出官方的。
 import { pathToFileURL } from 'node:url'
+import { createRecorder } from '../plugins/log.mjs'
 import { prepareChatFix } from '../plugins/chat-answer-fix.mjs'
 
 const fix = prepareChatFix()
 if (fix.officialIndex === undefined) throw new Error(`dsh-runtime-tuning chat-answer-fix: ${fix.error}`)
 const official = await import(pathToFileURL(fix.officialIndex).href)
+const record = createRecorder('chat-answer-fix.log')
+
+export const OWN_ID = 'runtime-tuning-ui-chat'
+// 官方 Config 里的显示设置（都是界面上能改的字段）
+export const SETTING_FIELDS = ['transcriptView', 'collapseTiming', 'performanceUsage', 'linkOpening']
 
 export const Config = official.Config
 export const inject = official.inject
-// 官方那一行被停用了，用户写在它上面的配置（比如 transcriptView）从那里取过来
 export function configOf(entries, id = 'ui-chat') {
   for (const entry of entries ?? []) if (entry.options?.id === id) return entry.options.config
   return undefined
 }
 
-// 加载器传进来的 config 已经过了官方 schema（每一项都是包装过的对象），不能再过一遍，否则报 expected "completion" but got {}。
-// 所以合并的是两行的原始配置（官方那行 + 我们这行），只过一次 schema；出任何问题都退回加载器给的 config。
-export function resolveConfig(ctx, config) {
-  let entries
-  try { entries = ctx.loader?.entries?.() } catch {}
-  const inherited = configOf(entries)
-  let resolved = config
-  if (inherited !== undefined && typeof official.Config === 'function') {
-    try { resolved = official.Config({ ...inherited, ...(configOf(entries, 'runtime-tuning-ui-chat') ?? {}) }) } catch { resolved = config }
-  }
-  return resolved
+// 显示设置读写的是正在运行的这一行。用户以前存在官方那行（ui-chat）上的设置，这一行还没有的字段搬过来一次；
+// 这一行已经有的不动，所以之后在界面上改的始终算数。
+export function settingsToCarry(entries) {
+  const from = configOf(entries) ?? {}
+  const own = configOf(entries, OWN_ID) ?? {}
+  const carry = {}
+  for (const key of SETTING_FIELDS) if (from[key] !== undefined && own[key] === undefined) carry[key] = from[key]
+  return Object.keys(carry).length > 0 ? carry : undefined
 }
 
 export function apply(ctx, config) {
-  return official.apply(ctx, resolveConfig(ctx, config))
+  official.apply(ctx, config)
+  if (!fix.settings) return
+  ctx.inject(['settings'], (child) => {
+    child.effect(() => {
+      let stopped = false
+      ;(async () => {
+        await ctx.loader?.await?.()
+        if (stopped) return
+        const carry = settingsToCarry(ctx.loader?.entries?.())
+        if (carry === undefined) return
+        await child.settings.update(OWN_ID, carry)
+        record({ event: 'settings-carried', fields: Object.keys(carry) })
+      })().catch((error) => record({ event: 'settings-carry-failed', error: String(error).slice(0, 300) }))
+      return () => { stopped = true }
+    }, 'ui-chat settings carry-over')
+  })
 }

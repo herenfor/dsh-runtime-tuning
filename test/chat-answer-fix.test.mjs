@@ -5,13 +5,15 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'chat-answer-fix-'))
-const { ANCHOR, REPLACEMENT, chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
+const { ANCHOR, REPLACEMENT, SETTINGS_ANCHOR, SETTINGS_REPLACEMENT, chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
 const { resolveConclude } = await import('../plugins/wait-guard.mjs')
 
 test('只在要改的那一行恰好出现一次时替换', () => {
-  assert.deepEqual(patchClient(`a\n${ANCHOR}\nb`), { text: `a\n${REPLACEMENT}\nb`, patched: true })
-  assert.deepEqual(patchClient('a\nb'), { text: 'a\nb', patched: false })
+  assert.deepEqual(patchClient(`a\n${ANCHOR}\n${SETTINGS_ANCHOR}\nb`), { text: `a\n${REPLACEMENT}\n${SETTINGS_REPLACEMENT}\nb`, patched: true, settings: true })
+  assert.deepEqual(patchClient('a\nb'), { text: 'a\nb', patched: false, settings: false })
   assert.equal(patchClient(`${ANCHOR}${ANCHOR}`).patched, false)
+  // 两处互不影响：回答那行找不到时，设置的命名空间照样要换（运行的仍是我们这一行）
+  assert.deepEqual(patchClient(SETTINGS_ANCHOR), { text: SETTINGS_REPLACEMENT, patched: false, settings: true })
 })
 
 test('先用 dsh 旁边链接的那一份，没有再在仓库里找唯一的一份', () => {
@@ -34,7 +36,7 @@ test('concludeTurn: auto 只在补丁打上时结束本轮', () => {
   assert.equal(resolveConclude(false, () => true), false)
 })
 
-test('L2：从本机正在用的官方聊天界面生成替身，只差那一行', (t) => {
+test('L2：从本机正在用的官方聊天界面生成替身，只差那两行', (t) => {
   const pnpm = join(homedir(), '.local/share/dsh-cli/node_modules/.pnpm')
   const dsh = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
   if (!existsSync(pnpm) || !existsSync(dsh)) return t.skip('host dsh-cli install absent')
@@ -42,36 +44,46 @@ test('L2：从本机正在用的官方聊天界面生成替身，只差那一行
   const out = mkdtempSync(join(tmpdir(), 'ui-chat-'))
   const result = generate(official, out)
   assert.equal(result.patched, true)
+  assert.equal(result.settings, true)
   const pkg = JSON.parse(readFileSync(join(official, 'package.json'), 'utf8'))
   const generated = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
   assert.equal(generated.name, '@deepseek-ai/dsh-client-ui-chat')  // 另外 8 个界面插件按这个名字依赖它
   assert.deepEqual(generated.dsh, pkg.dsh)
   assert.deepEqual(generated.exports, { '.': './index.mjs', './client': './client.js' })
   const before = readFileSync(join(official, 'lib/client.js'), 'utf8')
-  assert.equal(readFileSync(join(out, 'client.js'), 'utf8'), before.replace(ANCHOR, REPLACEMENT))
+  assert.equal(readFileSync(join(out, 'client.js'), 'utf8'), before.replace(ANCHOR, REPLACEMENT).replace(SETTINGS_ANCHOR, SETTINGS_REPLACEMENT))
   assert.ok(existsSync(result.officialIndex))
   assert.deepEqual(readdirSync(out).sort(), ['client.js', 'package.json'])
 })
 
-test('L2：替身能加载官方服务端，并把写在 ui-chat 上的配置转交过去', async (t) => {
+test('L2：替身能加载官方服务端；用户存在 ui-chat 上的显示设置，只把我们这行还没有的搬过来', async (t) => {
   if (!existsSync(join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js'))) return t.skip('host dsh-cli install absent')
   process.argv[1] = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
   const ui = await import('../ui-chat/index.mjs')
   assert.equal(typeof ui.apply, 'function')
-  assert.deepEqual(ui.configOf([{ options: { id: 'x' } }, { options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }]), { transcriptView: 'standard' })
-  assert.equal(ui.configOf([]), undefined)
-  assert.doesNotThrow(() => ui.Config({ transcriptView: 'standard' }))  // 和加载器一样先过官方 schema
-  // 加载器给的是已经过了 schema 的 config；官方那行带着用户设置时，不能把它再过一遍
-  const seen = []
-  const loaded = ui.Config(undefined)
-  const ctx = (entries) => ({ loader: { entries: () => entries } })
-  for (const entries of [
-    [{ options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }, { options: { id: 'runtime-tuning-ui-chat' } }],
-    [{ options: { id: 'runtime-tuning-ui-chat' } }],
-  ]) seen.push(ui.resolveConfig(ctx(entries), loaded))
-  assert.notEqual(seen[0], loaded)  // 按两行原始配置重新过了一次 schema，没有报错
-  assert.equal(seen[1], loaded)  // 官方那行没有配置：直接用加载器给的
-  assert.throws(() => ui.Config(loaded))  // 旧写法的问题：已经过了 schema 的 config 再过一遍会报错
+  assert.deepEqual(Object.keys(ui.Config.dict ?? {}).sort(), [...ui.SETTING_FIELDS].sort())  // 官方显示设置字段没变
+  const row = (id, config) => ({ options: { id, config } })
+  const official = row('ui-chat', { transcriptView: 'standard', linkOpening: 'new-tab' })
+  assert.deepEqual(ui.settingsToCarry([official, row('runtime-tuning-ui-chat')]), { transcriptView: 'standard', linkOpening: 'new-tab' })
+  // 我们这行已经存过的（之后在界面上改的）不覆盖
+  assert.deepEqual(ui.settingsToCarry([official, row('runtime-tuning-ui-chat', { transcriptView: 'compact' })]), { linkOpening: 'new-tab' })
+  assert.equal(ui.settingsToCarry([official, row('runtime-tuning-ui-chat', { transcriptView: 'compact', linkOpening: 'sidebar' })]), undefined)
+  assert.equal(ui.settingsToCarry([row('runtime-tuning-ui-chat')]), undefined)
+  assert.equal(ui.settingsToCarry(undefined), undefined)
+})
+
+test('启动后通过 DSH 的设置接口写到我们这一行，只写一次需要的字段', async (t) => {
+  if (!existsSync(join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js'))) return t.skip('host dsh-cli install absent')
+  const ui = await import('../ui-chat/index.mjs')
+  const updates = []
+  const fake = (entries) => {
+    const child = { effect: (fn) => fn(), settings: { configure: () => () => {}, update: async (ns, patch) => { updates.push([ns, patch]) } } }
+    return { fiber: {}, inject: (_deps, fn) => fn(child), loader: { await: async () => {}, entries: () => entries } }
+  }
+  ui.apply(fake([{ options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }, { options: { id: 'runtime-tuning-ui-chat' } }]))
+  ui.apply(fake([{ options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }, { options: { id: 'runtime-tuning-ui-chat', config: { transcriptView: 'verbose' } } }]))
+  await new Promise((r) => setTimeout(r, 20))
+  assert.deepEqual(updates, [['runtime-tuning-ui-chat', { transcriptView: 'standard' }]])
 })
 
 test('替身真的在用才算：补丁打上、官方那行停用、我们这行启用', () => {
