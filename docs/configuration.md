@@ -165,9 +165,21 @@ DSH 的会话日志里，连不上模型服务时只写一句 `DeepSeek Messages
 | `enabled` | `true` | 设为 `false` 关闭 |
 | `hosts` | `['deepseek.com']` | 只记录这些主机（含子域名）的请求 |
 
-## 配合 dsh-task-notify
+**stream-stall**
 
-[dsh-task-notify](https://github.com/herenfor/dsh-task-notify) 按 DSH 的后台任务事件判断：本次请求启动的任务还在跑时，结束的这一轮不发"完成"通知，等任务结束、模型处理完结果后再通知。它也认 `task_status` 里的 `waiting` 和 `services`。两个插件各自独立，不装另一个也能用。
+服务端降级时，模型的回答可能输出一点后就不再出内容，但连接不断、每隔几秒发一次心跳。官方的流空闲超时（`streamIdleTimeoutMs`，默认 5 分钟）每收到一次心跳就重新计时，所以永远不会触发，官方的自动重试也就不会启动，界面一直停在"思考"。
+
+这个插件包一层全局 `fetch`，只管 POST 到 `…/messages`、接受 `text/event-stream` 的请求（DeepSeek 的 Messages 接口，以及同协议的其他服务）。响应原样转交给 DSH，同时数一下事件：心跳和 `message_start` 不算进展。回答开始出内容以后，连续 `stallSeconds` 秒没有新内容，就断开这次请求。DSH 把它当作传输失败，`llm-retry` 按默认策略自动重试，会话里会记一条 `llm/retry`。它只看两次内容之间的间隔，不限制思考多久、输出多长；你按停止时照常停下。停用后还原 `fetch`。
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 关闭 |
+| `stallSeconds` | `180` | 开始出内容后，连续多少秒没有新内容算卡住 |
+| `firstContentSeconds` | `0` | 第一个内容出来之前（可能在排队）最多等多少秒；`0` 表示不管，仍按官方的空闲超时 |
+
+## 配合 dsh-sentinel
+
+[dsh-sentinel](https://github.com/herenfor/dsh-sentinel)（原 dsh-task-notify）按 DSH 的后台任务事件判断：本次请求启动的任务还在跑时，结束的这一轮不发"完成"通知，等任务结束、模型处理完结果后再通知。它也认 `task_status` 里的 `waiting` 和 `services`。两个插件各自独立，不装另一个也能用。
 
 ## 日志
 

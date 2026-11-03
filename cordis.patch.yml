@@ -22,6 +22,8 @@
       name: ./plugins/fs-view.mjs
     - id: runtime-tuning-net-log
       name: ./plugins/net-log.mjs
+    - id: runtime-tuning-stream-stall
+      name: ./plugins/stream-stall.mjs
     - id: runtime-tuning-ui-chat
       name: ./ui-chat/index.mjs
     # 调优预设（tuned）：自己写的一份固定预设，用来和 standard 对比把活干完的总耗时。
