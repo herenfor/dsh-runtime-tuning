@@ -73,7 +73,8 @@ test('L2：替身能加载官方服务端；用户存在 ui-chat 上的显示设
   process.argv[1] = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
   const ui = await import('../ui-chat/index.mjs')
   assert.equal(typeof ui.apply, 'function')
-  assert.deepEqual(Object.keys(ui.Config.dict ?? {}).sort(), [...ui.SETTING_FIELDS].sort())  // 官方显示设置字段没变
+  assert.deepEqual([...ui.SETTING_FIELDS].sort(), Object.keys(ui.Config.dict ?? {}).sort())  // 按当前官方 Config 的字段搬
+  for (const field of ['transcriptView', 'collapseTiming', 'performanceUsage', 'linkOpening']) assert.ok(ui.SETTING_FIELDS.includes(field))
   const row = (id, config) => ({ options: { id, config } })
   const official = row('ui-chat', { transcriptView: 'standard', linkOpening: 'new-tab' })
   assert.deepEqual(ui.settingsToCarry([official, row('runtime-tuning-ui-chat')]), { transcriptView: 'standard', linkOpening: 'new-tab' })
@@ -82,6 +83,9 @@ test('L2：替身能加载官方服务端；用户存在 ui-chat 上的显示设
   assert.equal(ui.settingsToCarry([official, row('runtime-tuning-ui-chat', { transcriptView: 'compact', linkOpening: 'sidebar' })]), undefined)
   assert.equal(ui.settingsToCarry([row('runtime-tuning-ui-chat')]), undefined)
   assert.equal(ui.settingsToCarry(undefined), undefined)
+  // 新版加载器给迭代器，我们这行排在官方前面也要认出来
+  const both = [row('runtime-tuning-ui-chat', { transcriptView: 'standard' }), row('ui-chat', { transcriptView: 'standard' })]
+  assert.equal(ui.settingsToCarry(both.values()), undefined)
 })
 
 test('启动后通过 DSH 的设置接口写到我们这一行，只写一次需要的字段', async (t) => {
@@ -96,6 +100,16 @@ test('启动后通过 DSH 的设置接口写到我们这一行，只写一次需
   ui.apply(fake([{ options: { id: 'ui-chat', config: { transcriptView: 'standard' } } }, { options: { id: 'runtime-tuning-ui-chat', config: { transcriptView: 'verbose' } } }]))
   await new Promise((r) => setTimeout(r, 20))
   assert.deepEqual(updates, [['runtime-tuning-ui-chat', { transcriptView: 'standard' }]])
+})
+
+test('刚启动时加载器还在重载事务里（写设置报 nested），过一会儿重试', async (t) => {
+  if (!existsSync(join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js'))) return t.skip('host dsh-cli install absent')
+  const ui = await import('../ui-chat/index.mjs')
+  let calls = 0
+  const child = { effect: (fn) => fn(), settings: { configure: () => () => {}, update: async () => { if (++calls === 1) throw new Error('HMR transactions cannot be nested') } } }
+  ui.apply({ fiber: {}, inject: (_deps, fn) => fn(child), loader: { await: async () => {}, entries: () => [{ options: { id: 'ui-chat', config: { linkOpening: 'new-tab' } } }, { options: { id: 'runtime-tuning-ui-chat' } }] } })
+  await new Promise((r) => setTimeout(r, 700))
+  assert.equal(calls, 2)
 })
 
 test('替身真的在用才算：补丁打上、官方那行停用、我们这行启用', () => {
