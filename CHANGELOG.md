@@ -1,5 +1,11 @@
 # 更新记录
 
+## 0.2.6 · 2026-11-04
+
+- 适配 DSH 0.2.2-rc.1，要求的 DSH 版本改为 `>=0.2.2-rc.1`；还在 0.2.1 上请继续用 0.2.5。
+- 修复调优预设：0.2.2 去掉了 `dsh-tool-subagent-control/list-agents` 子路径（并进了 `dsh-tool-subagent-control`），旧预设引用它，用调优预设的会话打不开（显示「会话不可用」），新建也不行。预设按 0.2.2 的 standard 更新：去掉这个子路径，`tool-subagent` 的 `modelSelectionSettings` 换成 `modelSelection` / `modelDiscovery`，`tool-fs` 加 `applyPatch: false`，加上插件管理工具，委派组加 `workflowEngine` 隔离。
+- chat-answer-fix：显示设置的字段按当前官方 Config 读（0.2.2 加了 `foldedReplies`）；DSH 刚启动时加载器还在重载事务里，搬设置报 `HMR transactions cannot be nested`，现在过一会儿重试。新版加载器（cordis-plugin-loader 1.1）给的条目是迭代器，原来在同一个迭代器上找两次，找不到我们这一行，每次启动都把设置重写一遍（还多写一行 `disabled: false`）；现在先转成数组。
+
 ## 0.2.5 · 2026-11-03
 
 - 新增 stream-stall：模型回答开始输出后只剩心跳、连续 `stallSeconds`（默认 180）秒没有新内容时，断开这次请求，DSH 按传输失败自动重试。官方的流空闲超时被心跳重置，服务端降级时会一直停在"思考"。不限制思考时长和输出长度；第一个内容出来之前默认不管。
