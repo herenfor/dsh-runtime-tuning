@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'tuned-'))
@@ -35,4 +36,32 @@ test('L2：预设引用的官方包在本机 DSH 里都存在（含子路径导�
     const exports = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).exports ?? {}
     if (sub !== undefined) assert.ok(exports[`.${sub}`] !== undefined, `${pkg}${sub}`)
   }
+})
+
+test('调优预设默认关闭（会话绑定预设，用的人自己打开）', () => {
+  assert.match(tuned, /^- id: runtime-tuning-preset-tuned\n      name: '@deepseek-ai\/dsh-agent-preset'\n      disabled: true\n/)
+})
+
+// 手写的预设不会跟着官方变：本机 DSH 的 standard 一改，这里就报出来，按报出的差异手动更新 cordis.patch.yml。
+test('L2：调优预设与本机 DSH 的 standard 只差有意去掉和加上的几项', (t) => {
+  const dsh = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
+  if (!existsSync(dsh)) return t.skip('host dsh-cli install absent')
+  const { parse } = createRequire(join(findHostPackage(dsh, 'dsh-config-editor'), 'package.json'))('yaml')
+  const load = (text) => parse(text, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (v) => `!!js ${v}` }] })
+  const presetOf = (layer, id) => layer.flatMap((row) => row.insert ?? [row]).find((row) => row.config?.id === id).config.plugins
+  const flat = (rows, out = new Map()) => {
+    for (const { config, ...row } of rows ?? []) {
+      if (row.group) flat(config, out)
+      out.set(row.id, JSON.stringify(row.group ? row : { ...row, config }))
+    }
+    return out
+  }
+  const standard = flat(presetOf(load(readFileSync(join(findHostPackage(dsh, 'dsh-web-app'), 'presets/standard.patch.yml'), 'utf8')), 'standard'))
+  const ours = flat(presetOf(load(patch), 'tuned'))
+  const removed = ['tool-schedule', 'command-goal', 'tool-goal', 'planning', 'plan-mode', 'tool-subagent-fork', 'workflow-ptc', 'tool-workflow']
+  const drift = []
+  for (const [id, row] of standard) if (!removed.includes(id) && ours.get(id) !== row) drift.push(`${id}\n  standard: ${row}\n  tuned:    ${ours.get(id)}`)
+  for (const id of ours.keys()) if (!standard.has(id) && id !== 'tool-use-prompt') drift.push(`${id} 只在调优预设里`)
+  for (const id of removed) if (!standard.has(id)) drift.push(`${id} 已不在 standard 里，去掉的清单要更新`)
+  assert.deepEqual(drift, [], `DSH 的 standard 变了，按下面的差异更新调优预设：\n${drift.join('\n')}`)
 })
