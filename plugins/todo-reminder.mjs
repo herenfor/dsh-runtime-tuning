@@ -1,16 +1,18 @@
 // dsh-todo-reminder：任务清单有没做完的项、又很久没更新时，提醒模型对一下进度。
 // DSH 的 todo_write 只把清单写进会话，没有任何后续提醒：长任务里清单写一次就被忘掉，界面上一直停在第一项
 // （两周 41 个会话里用过清单的 3 个，结束时全都没收尾；最长的一个第 14 步写下 6 项，之后 62 步再没更新）。
-// 做法参考 Claude Code：清单 N 步没更新、距上次提醒也过了 N 步，就在下一次工具调用的结果后面附一条提醒，
+// 做法参考 Claude Code：清单 N 步（默认 15）没更新、距上次提醒也过了 N 步，就在下一次工具调用的结果后面附一条提醒，
 // 带上清单当前内容，语气是"对不上就更新，还准就忽略"。和 CC 不同的是：没写过清单、或清单已全部完成时不提醒，
 // 不引导模型去用这个工具。只读会话事件、只用 tools/execute 的 deferContext，不改官方工具和提示词。
+// 提醒里请模型把更新和下一个工具放在同一步，不单独占一步（实测单独一步约 3.5 s）。
+// 默认 15 步：一个会自己更新清单的长会话里，两次更新的间隔中位数是 24 步，10 步会在大多数间隔里多余地提醒。
 // DSH 重启后内存里的清单丢失，下一次 todo_write 之前不会提醒。
 import { randomUUID } from 'node:crypto'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-runtime-tuning-todo-reminder'
 
-const DEFAULTS = { enabled: true, stepsSinceWrite: 10, stepsBetweenReminders: 10 }
+const DEFAULTS = { enabled: true, stepsSinceWrite: 15, stepsBetweenReminders: 15 }
 const record = createRecorder('todo-reminder.log')
 const MARK = { completed: 'x', in_progress: '>', pending: ' ' }
 
@@ -19,7 +21,8 @@ export function reminderText(todos, steps) {
   const lines = todos.map((todo) => `- [${MARK[todo.status] ?? ' '}] ${todo.content}${todo.status === 'in_progress' ? ' (in progress)' : ''}`)
   return `The todo list has not been updated in the last ${steps} steps and still has unfinished items. ` +
     'If your progress has moved on, update it with todo_write (mark finished items completed, keep the current one in_progress); ' +
-    'if it no longer matches the work, rewrite it. If it is still accurate, ignore this note and do not mention it to the user.\n\n' +
+    'if it no longer matches the work, rewrite it. Send the todo_write in the same step as your next tool call rather than in a step of its own. ' +
+    'If it is still accurate, ignore this note and do not mention it to the user.\n\n' +
     `Current todo list:\n${lines.join('\n')}`
 }
 

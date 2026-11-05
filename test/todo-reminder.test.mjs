@@ -32,8 +32,8 @@ function fakeHost(config) {
   return host
 }
 
-test('清单写下后第 10 步提醒一次，再过 10 步再提醒；提醒带清单当前内容', async () => {
-  const host = fakeHost()
+test('（阈值 10）清单写下后第 10 步提醒一次，再过 10 步再提醒；提醒带清单当前内容', async () => {
+  const host = fakeHost({ stepsSinceWrite: 10, stepsBetweenReminders: 10 })
   await host.step(['todo_write']); host.write(OPEN)
   await host.steps(9)
   assert.equal(host.notes.length, 0)
@@ -43,6 +43,7 @@ test('清单写下后第 10 步提醒一次，再过 10 步再提醒；提醒带
   assert.match(text, /last 10 steps/)
   assert.match(text, /- \[>\] 盘点样书 \(in progress\)\n- \[ \] 写清单/)
   assert.equal(host.notes[0].m.source.kind, 'dsh-todo-reminder')
+  assert.match(text, /same step as your next tool call/)
   await host.steps(9)
   assert.equal(host.notes.length, 1)
   await host.step()
@@ -50,7 +51,7 @@ test('清单写下后第 10 步提醒一次，再过 10 步再提醒；提醒带
 })
 
 test('更新清单后重新计数', async () => {
-  const host = fakeHost()
+  const host = fakeHost({ stepsSinceWrite: 10, stepsBetweenReminders: 10 })
   host.write(OPEN)
   await host.steps(8)
   host.write([{ ...OPEN[0], status: 'completed' }, { ...OPEN[1], status: 'in_progress' }])
@@ -62,7 +63,7 @@ test('更新清单后重新计数', async () => {
 })
 
 test('没写过清单、清单全部完成或为空时不提醒', async () => {
-  const host = fakeHost()
+  const host = fakeHost({ stepsSinceWrite: 10, stepsBetweenReminders: 10 })
   await host.steps(30)
   host.write(OPEN.map((t) => ({ ...t, status: 'completed' })))
   await host.steps(30)
@@ -72,12 +73,12 @@ test('没写过清单、清单全部完成或为空时不提醒', async () => {
 })
 
 test('同一步多个工具只提醒一次；todo_write 本身不带提醒', async () => {
-  const host = fakeHost()
+  const host = fakeHost({ stepsSinceWrite: 10, stepsBetweenReminders: 10 })
   host.write(OPEN)
   await host.steps(9)
   await host.step(['bash', 'read', 'bash'])
   assert.equal(host.notes.length, 1)
-  const late = fakeHost()
+  const late = fakeHost({ stepsSinceWrite: 10, stepsBetweenReminders: 10 })
   late.write(OPEN)
   await late.steps(9)
   await late.step(['todo_write'])
@@ -85,7 +86,7 @@ test('同一步多个工具只提醒一次；todo_write 本身不带提醒', asy
 })
 
 test('按会话分开计数：子代理的步数不算到父会话上', async () => {
-  const host = fakeHost()
+  const host = fakeHost({ stepsSinceWrite: 10, stepsBetweenReminders: 10 })
   host.write(OPEN)
   const child = { id: 'child' }
   for (let i = 0; i < 20; i++) await host.step(['bash'], child)
@@ -104,11 +105,20 @@ test('阈值可配，enabled: false 时不挂钩子', async () => {
   assert.deepEqual(Object.keys(handlers), [])
 })
 
+test('默认 15 步才提醒', async () => {
+  const host = fakeHost()
+  host.write(OPEN)
+  await host.steps(14)
+  assert.equal(host.notes.length, 0)
+  await host.step()
+  assert.equal(host.notes.length, 1)
+})
+
 test('提醒出错不影响工具结果', async () => {
   const handlers = {}
   apply({ on: (name, fn) => { handlers[name] = fn } })
   handlers['session/event']({ id: 's' }, { type: 'todo/write', data: { todos: OPEN } })
-  for (let i = 0; i < 10; i++) handlers['session/event']({ id: 's' }, { type: 'step/start', data: {} })
+  for (let i = 0; i < 15; i++) handlers['session/event']({ id: 's' }, { type: 'step/start', data: {} })
   const result = await handlers['tools/execute']({ name: 'bash', agent: { session: { id: 's' } }, deferContext: () => { throw new Error('boom') } }, async () => 'ok')
   assert.equal(result, 'ok')
   assert.match(reminderText(OPEN, 12), /last 12 steps/)
