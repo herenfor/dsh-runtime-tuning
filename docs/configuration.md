@@ -184,6 +184,18 @@ DSH 的会话日志里，连不上模型服务时只写一句 `DeepSeek Messages
 | `stallSeconds` | `180` | 开始出内容后，连续多少秒没有新内容算卡住 |
 | `firstContentSeconds` | `0` | 第一个内容出来之前（可能在排队）最多等多少秒；`0` 表示不管，仍按官方的空闲超时 |
 
+**todo-reminder**
+
+官方的 `todo_write` 只把清单写进会话，之后没有任何提醒。长任务里模型常常写一次就忘了，界面上的清单一直停在第一项。这个插件参考 Claude Code 的做法：按会话数步数，清单还有没完成的项、距上次写清单已经 `stepsSinceWrite` 步、距上次提醒也过了 `stepsBetweenReminders` 步，就在这一步的工具结果后面附一条提醒（通过 `deferContext`，和 wait-guard 的附注一样），带上清单当前内容，语气是"进度变了就更新，还准就忽略"。
+
+和 Claude Code 不同：没写过清单、清单为空或已全部完成时不提醒，不引导模型去用这个工具。子代理按自己的会话分开计数。DSH 重启后插件不知道之前的清单，下一次 `todo_write` 之前不会提醒。
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 关闭 |
+| `stepsSinceWrite` | `10` | 清单多少步没更新才提醒 |
+| `stepsBetweenReminders` | `10` | 两次提醒之间至少隔多少步 |
+
 ## 配合 dsh-sentinel
 
 [dsh-sentinel](https://github.com/herenfor/dsh-sentinel)（原 dsh-task-notify）按 DSH 的后台任务事件判断：本次请求启动的任务还在跑时，结束的这一轮不发"完成"通知，等任务结束、模型处理完结果后再通知。它也认 `task_status` 里的 `waiting` 和 `services`。两个插件各自独立，不装另一个也能用。
