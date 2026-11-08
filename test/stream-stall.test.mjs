@@ -134,3 +134,19 @@ test('真实套接字：本机假服务只发心跳时，Node 的 fetch 被断�
     await closed
   } finally { server.close() }
 })
+
+test('读到 message_stop 后取消读取（DSH 的做法）、或上游之后只剩心跳：都不再计时，不误报', async () => {
+  const tail = Array(15).fill(0).flatMap(() => [20, event('ping')])
+  for (const cancelAfterStop of [true, false]) {
+    const { original } = fakeUpstream([event('message_start'), event('content_block_delta'), event('message_stop'), ...tail])
+    const logs = []
+    const fetch = wrapFetch(original, { stallSeconds: 0.1, firstContentSeconds: 0 }, { sink: (e) => logs.push(e) })
+    const reader = (await fetch(URL_, POST)).body.getReader(), dec = new TextDecoder()
+    let text = ''
+    while (!text.includes('message_stop')) text += dec.decode((await reader.read()).value)
+    if (cancelAfterStop) await reader.cancel()
+    else void (async () => { try { while (!(await reader.read()).done); } catch {} })()
+    await sleep(250)
+    assert.deepEqual(logs, [], `cancelAfterStop=${cancelAfterStop}`)
+  }
+})

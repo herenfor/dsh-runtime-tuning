@@ -5,15 +5,16 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'chat-answer-fix-'))
-const { ANCHOR, REPLACEMENT, SETTINGS_ANCHOR, SETTINGS_REPLACEMENT, chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
+const { ANCHOR, REPLACEMENT, CLOSING_ANCHOR, CLOSING_REPLACEMENT, SETTINGS_ANCHOR, SETTINGS_REPLACEMENT, chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
 const { resolveConclude } = await import('../plugins/wait-guard.mjs')
 
 test('只在要改的那一行恰好出现一次时替换', () => {
-  assert.deepEqual(patchClient(`a\n${ANCHOR}\n${SETTINGS_ANCHOR}\nb`), { text: `a\n${REPLACEMENT}\n${SETTINGS_REPLACEMENT}\nb`, patched: true, settings: true })
-  assert.deepEqual(patchClient('a\nb'), { text: 'a\nb', patched: false, settings: false })
+  assert.deepEqual(patchClient(`a\n${CLOSING_ANCHOR}\n${ANCHOR}\n${SETTINGS_ANCHOR}\nb`),
+    { text: `a\n${CLOSING_REPLACEMENT}\n${REPLACEMENT}\n${SETTINGS_REPLACEMENT}\nb`, patched: true, settings: true, closing: true })
+  assert.deepEqual(patchClient('a\nb'), { text: 'a\nb', patched: false, settings: false, closing: false })
   assert.equal(patchClient(`${ANCHOR}${ANCHOR}`).patched, false)
-  // 两处互不影响：回答那行找不到时，设置的命名空间照样要换（运行的仍是我们这一行）
-  assert.deepEqual(patchClient(SETTINGS_ANCHOR), { text: SETTINGS_REPLACEMENT, patched: false, settings: true })
+  // 几处互不影响：回答那行找不到时，设置的命名空间照样要换（运行的仍是我们这一行）
+  assert.deepEqual(patchClient(SETTINGS_ANCHOR), { text: SETTINGS_REPLACEMENT, patched: false, settings: true, closing: false })
 })
 
 test('先按 Node 的模块解析从 dsh 入口找：不是 pnpm 安装（比如 npm 全局装、打包进应用）也能找到', () => {
@@ -48,7 +49,7 @@ test('concludeTurn: auto 只在补丁打上时结束本轮', () => {
   assert.equal(resolveConclude(false, () => true), false)
 })
 
-test('L2：从本机正在用的官方聊天界面生成替身，只差那两行', (t) => {
+test('L2：从本机正在用的官方聊天界面生成替身，只差那三行', (t) => {
   const pnpm = join(homedir(), '.local/share/dsh-cli/node_modules/.pnpm')
   const dsh = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
   if (!existsSync(pnpm) || !existsSync(dsh)) return t.skip('host dsh-cli install absent')
@@ -57,15 +58,42 @@ test('L2：从本机正在用的官方聊天界面生成替身，只差那两行
   const result = generate(official, out)
   assert.equal(result.patched, true)
   assert.equal(result.settings, true)
+  assert.equal(result.closing, true)
   const pkg = JSON.parse(readFileSync(join(official, 'package.json'), 'utf8'))
   const generated = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
   assert.equal(generated.name, '@deepseek-ai/dsh-client-ui-chat')  // 另外 8 个界面插件按这个名字依赖它
   assert.deepEqual(generated.dsh, pkg.dsh)
   assert.deepEqual(generated.exports, { '.': './index.mjs', './client': './client.js' })
   const before = readFileSync(join(official, 'lib/client.js'), 'utf8')
-  assert.equal(readFileSync(join(out, 'client.js'), 'utf8'), before.replace(ANCHOR, REPLACEMENT).replace(SETTINGS_ANCHOR, SETTINGS_REPLACEMENT))
+  assert.equal(readFileSync(join(out, 'client.js'), 'utf8'), before.replace(ANCHOR, REPLACEMENT).replace(SETTINGS_ANCHOR, SETTINGS_REPLACEMENT).replace(CLOSING_ANCHOR, CLOSING_REPLACEMENT))
   assert.ok(existsSync(result.officialIndex))
   assert.deepEqual(readdirSync(out).sort(), ['client.js', 'package.json'])
+})
+
+test('L2：生成的 latestAnswer 在收尾只补了清单时取前一段正文，其余情况和原来一样', (t) => {
+  const dsh = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
+  if (!existsSync(dsh)) return t.skip('host dsh-cli install absent')
+  const out = mkdtempSync(join(tmpdir(), 'ui-chat-'))
+  generate(findHostPackage(dsh, 'dsh-client-ui-chat'), out)
+  const client = readFileSync(join(out, 'client.js'), 'utf8')
+  const pick = (name) => {
+    const at = client.indexOf(`function ${name}(`)
+    assert.ok(at >= 0, name)
+    let depth = 0
+    for (let i = client.indexOf('{', at); ; i++) {
+      if (client[i] === '{') depth++
+      else if (client[i] === '}' && --depth === 0) return client.slice(at, i + 1)
+    }
+  }
+  const latestAnswer = new Function(`${pick('hasAssistantReplyContent')}\n${pick('isFinalAssistant')}\n${pick('latestAnswer')}\nreturn latestAnswer`)()
+  const step = (...blocks) => ({ data: new Map([['assistant-step', { finalNode: {}, blocks }]]) })
+  const summary = step({ kind: 'text', text: '总结' })
+  const todo = step({ kind: 'reasoning', text: 'x' }, { kind: 'tool-call', name: 'todo_write' })
+  assert.equal(latestAnswer({ status: 'closed', steps: [summary, todo] })?.blocks[0].text, '总结')
+  assert.equal(latestAnswer({ status: 'open', steps: [summary, todo] }), null)  // 还在跑：不提前显示
+  assert.equal(latestAnswer({ status: 'closed', steps: [summary, step({ kind: 'tool-call', name: 'bash' })] }), null)  // 别的工具：照旧
+  assert.equal(latestAnswer({ status: 'closed', steps: [summary] })?.blocks[0].text, '总结')
+  assert.equal(latestAnswer({ status: 'closed', steps: [todo] }), null)  // 前面没有正文：照旧
 })
 
 test('L2：替身能加载官方服务端；用户存在 ui-chat 上的显示设置，只把我们这行还没有的搬过来', async (t) => {

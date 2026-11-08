@@ -6,19 +6,32 @@
 // 不引导模型去用这个工具。只读会话事件、只用 tools/execute 的 deferContext，不改官方工具和提示词。
 // 提醒里请模型把更新和下一个工具放在同一步，不单独占一步（实测单独一步约 3.5 s）。
 // 默认 15 步：一个会自己更新清单的长会话里，两次更新的间隔中位数是 24 步，10 步会在大多数间隔里多余地提醒。
+// 收尾检查：模型给出最终答复、准备结束这一轮时（agent/turn-stopping），清单还有没完成的项，就排一条消息让它再走一步，
+// 只调一次 todo_write 把清单对齐；这一步只有 todo_write 时直接结束本轮（concludeTurn），不再写第二段话。每轮最多一次，
+// 只管顶层会话（子代理的最后一步要交回父会话）。界面只把最后一步当回答，所以要 chat-answer-fix 的收尾补丁生效时才开（auto）。
 // DSH 重启后内存里的清单丢失，下一次 todo_write 之前不会提醒。
 import { randomUUID } from 'node:crypto'
+import { chatFixActive, prepareChatFix } from './chat-answer-fix.mjs'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-runtime-tuning-todo-reminder'
 
-const DEFAULTS = { enabled: true, stepsSinceWrite: 15, stepsBetweenReminders: 15 }
+const DEFAULTS = { enabled: true, stepsSinceWrite: 15, stepsBetweenReminders: 15, closingCheck: 'auto' }
 const record = createRecorder('todo-reminder.log')
 const MARK = { completed: 'x', in_progress: '>', pending: ' ' }
+const listOf = (todos) => todos.map((todo) => `- [${MARK[todo.status] ?? ' '}] ${todo.content}${todo.status === 'in_progress' ? ' (in progress)' : ''}`)
+
+/** 收尾检查的正文：本轮要结束了，清单还有没完成的项。 */
+export function closingText(todos) {
+  return 'You are ending this turn, but the todo list still has unfinished items. ' +
+    'Call todo_write once so the list matches what was actually done: mark finished items completed, and leave items that really are not done as pending or in_progress. ' +
+    'Call only todo_write and write no text: your previous message stays as the final answer and the turn ends after this call. ' +
+    `Do not mention this note to the user.\n\nCurrent todo list:\n${listOf(todos).join('\n')}`
+}
 
 /** 提醒正文：说明多久没更新，附清单当前内容。 */
 export function reminderText(todos, steps) {
-  const lines = todos.map((todo) => `- [${MARK[todo.status] ?? ' '}] ${todo.content}${todo.status === 'in_progress' ? ' (in progress)' : ''}`)
+  const lines = listOf(todos)
   return `The todo list has not been updated in the last ${steps} steps and still has unfinished items. ` +
     'If your progress has moved on, update it with todo_write (mark finished items completed, keep the current one in_progress); ' +
     'if it no longer matches the work, rewrite it. Send the todo_write in the same step as your next tool call rather than in a step of its own. ' +
@@ -59,19 +72,67 @@ export function createTracker(config) {
       s.remindedAt = s.step
       return { todos: s.todos, steps }
     },
+    /** 还有没完成的项时返回清单。 */
+    openTodos: (sessionId) => sessions.get(sessionId)?.todos,
     size: () => sessions.size,
   }
 }
 
+export const isTopLevelSession = (session) => {
+  const depth = session?.header?.delegationDepth
+  return depth === undefined || depth === 0
+}
+
 export function apply(ctx, config = {}) {
   const c = { ...DEFAULTS, ...config }
+  if (c.closingCheck === 'auto') {
+    try {
+      const prepared = prepareChatFix()
+      c.closingCheck = prepared.closing === true && chatFixActive(ctx.loader?.entries?.(), prepared.patched)
+    } catch { c.closingCheck = false }
+  } else c.closingCheck = c.closingCheck === true
   record({ event: 'loaded', config: c })
   if (!c.enabled) return
   const tracker = createTracker(c)
+  // 收尾检查排过消息的会话：turn 是哪一轮，calls 是下一条回复里的工具名（收到 assistant/message 后才有）。
+  const closing = new Map()
   ctx.on('session/event', (session, event) => {
-    try { tracker.onEvent(session?.id, event) } catch (error) { record({ event: 'track-failed', error: String(error) }) }
+    try {
+      tracker.onEvent(session?.id, event)
+      const pending = closing.get(session?.id)
+      if (pending === undefined) return
+      if (event.type === 'turn/end') return void closing.delete(session.id)
+      if (event.type === 'assistant/message' && pending.calls === undefined) {
+        pending.calls = (event.data?.message?.content ?? []).filter((block) => block.type === 'tool-call').map((block) => block.name)
+      }
+    } catch (error) { record({ event: 'track-failed', error: String(error) }) }
+  })
+  if (c.closingCheck) ctx.on('agent/turn-stopping', ({ agent, turn } = {}) => {
+    try {
+      const session = agent?.session
+      if (!session || !isTopLevelSession(session) || typeof agent.inject !== 'function') return
+      if (closing.get(session.id)?.turn === turn) return
+      const todos = tracker.openTodos(session.id)
+      if (todos === undefined) return
+      closing.set(session.id, { turn })
+      agent.inject(contextMessage(closingText(todos), 'todo list closing check'))
+      record({ event: 'closing-check', session: session.id, open: todos.filter((todo) => todo.status !== 'completed').length })
+    } catch (error) {
+      record({ event: 'closing-failed', error: String(error) })
+    }
   })
   ctx.on('tools/execute', async (exec, next) => {
+    try {
+      const pending = closing.get(exec.agent?.session?.id)
+      // 收尾那一步只有 todo_write：写完直接结束本轮。模型若又开始干活（同一步还有别的工具），照常继续。
+      if (exec.name === 'todo_write' && pending?.calls?.length > 0 && pending.calls.every((name) => name === 'todo_write')
+        && typeof exec.concludeTurn === 'function') {
+        exec.concludeTurn()
+        record({ event: 'closing-concluded', session: exec.agent.session.id })
+      }
+    } catch (error) {
+      record({ event: 'closing-failed', tool: exec?.name, error: String(error) })
+    }
     const result = await next()
     try {
       const id = exec.agent?.session?.id

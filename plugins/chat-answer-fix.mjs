@@ -4,7 +4,8 @@
 // 官方仓库不收 issue 和 PR，所以做成插件：插件包把 ui-chat 这一行换成 ../ui-chat/index.mjs。
 // 它沿用官方包名（另外 8 个界面插件按这个名字依赖它），服务端那一半原样转出官方的；
 // 浏览器那一半是启动时从当前版本的官方 client.js 生成的副本，改两处：已结束的一轮不再因为带工具调用而不算回答；
-// 显示设置的命名空间换成我们这一行的 id（见下面 SETTINGS_ANCHOR）。
+// 显示设置的命名空间换成我们这一行的 id（见下面 SETTINGS_ANCHOR）；
+// 已结束的一轮，最后一步只是 todo_write（todo-reminder 收尾时让模型补清单）时，往前取最近一段正文当回答（CLOSING_ANCHOR）。
 // 找不到要改的那一行（官方改了实现），就原样复制官方文件，效果和没装一样。
 import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -16,6 +17,12 @@ const record = createRecorder('chat-answer-fix.log')
 export const UI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'ui-chat')
 export const ANCHOR = 'return data.blocks.some((block) => block.kind === "tool-call") ? null : data;'
 export const REPLACEMENT = 'return data.blocks.some((block) => block.kind === "tool-call") && turn.status !== "closed" ? null : data;'
+// latestAnswer 只看最后一步。收尾补清单那一步只有 todo_write、没有正文，不改的话整轮没有回答，总结被收进折叠里。
+export const CLOSING_ANCHOR = 'const data = turn.steps.at(-1)?.data.get("assistant-step");'
+export const CLOSING_REPLACEMENT = 'const last = turn.steps.at(-1)?.data.get("assistant-step"); ' +
+  'const todoOnly = turn.status === "closed" && Array.isArray(last?.blocks) && last.blocks.some((block) => block.kind === "tool-call") && ' +
+  'last.blocks.every((block) => block.kind === "reasoning" || (block.kind === "tool-call" && block.name === "todo_write") || (block.kind === "text" && block.text.trim() === "")); ' +
+  'const data = (todoOnly ? turn.steps.slice(0, -1).reverse().map((step) => step.data.get("assistant-step")).find((step) => isFinalAssistant(step) && hasAssistantReplyContent(step.blocks)) : void 0) ?? last;'
 // 浏览器那一半按 "ui-chat" 读写显示设置（transcriptView 等），可设置表单登记在正在运行的这一行 runtime-tuning-ui-chat 名下：
 // 不改的话读到的是空配置（退回默认的 detailed），在界面上改了也存不下，重启又回到详细。
 export const SETTINGS_ANCHOR = 'const CHAT_SETTINGS_NAMESPACE = "ui-chat";'
@@ -27,11 +34,12 @@ const replaceOnce = (source, anchor, replacement) => {
   return { text: source.slice(0, at) + replacement + source.slice(at + anchor.length), done: true }
 }
 
-/** 两处各自只在要改的那一行恰好出现一次时替换；patched 指回答判定那一处。 */
+/** 三处各自只在要改的那一行恰好出现一次时替换；patched 指回答判定那一处，closing 指收尾补清单那一处。 */
 export function patchClient(source) {
   const answer = replaceOnce(source, ANCHOR, REPLACEMENT)
   const settings = replaceOnce(answer.text, SETTINGS_ANCHOR, SETTINGS_REPLACEMENT)
-  return { text: settings.text, patched: answer.done, settings: settings.done }
+  const closing = replaceOnce(settings.text, CLOSING_ANCHOR, CLOSING_REPLACEMENT)
+  return { text: closing.text, patched: answer.done, settings: settings.done, closing: closing.done }
 }
 
 const nodeResolve = (from, request) => createRequire(from).resolve(request)
@@ -68,7 +76,7 @@ const writeIfChanged = (file, text) => {
 /** 从官方包生成 ui-chat/ 下的 package.json 和 client.js；返回官方服务端入口和是否打上了补丁。 */
 export function generate(officialDir, outDir = UI_DIR) {
   const pkg = JSON.parse(readFileSync(join(officialDir, 'package.json'), 'utf8'))
-  const { text, patched, settings } = patchClient(readFileSync(join(officialDir, entryOf(pkg.exports?.['./client'], './lib/client.js')), 'utf8'))
+  const { text, patched, settings, closing } = patchClient(readFileSync(join(officialDir, entryOf(pkg.exports?.['./client'], './lib/client.js')), 'utf8'))
   writeIfChanged(join(outDir, 'client.js'), text)
   writeIfChanged(join(outDir, 'package.json'), JSON.stringify({
     name: pkg.name, version: pkg.version, private: true, type: 'module',
@@ -76,7 +84,7 @@ export function generate(officialDir, outDir = UI_DIR) {
     exports: { '.': './index.mjs', './client': './client.js' },
     dsh: pkg.dsh,
   }, null, 2) + '\n')
-  return { patched, settings, version: pkg.version, officialIndex: join(officialDir, entryOf(pkg.exports?.['.'], pkg.main ?? './lib/index.js')) }
+  return { patched, settings, closing, version: pkg.version, officialIndex: join(officialDir, entryOf(pkg.exports?.['.'], pkg.main ?? './lib/index.js')) }
 }
 
 let prepared
@@ -85,7 +93,7 @@ export function prepareChatFix(entryScript = process.argv[1]) {
   if (prepared === undefined) {
     try {
       prepared = generate(findHostPackage(entryScript, 'dsh-client-ui-chat'))
-      record({ event: prepared.patched ? 'patched' : 'unpatched', settings: prepared.settings, version: prepared.version })
+      record({ event: prepared.patched ? 'patched' : 'unpatched', settings: prepared.settings, closing: prepared.closing, version: prepared.version })
     } catch (error) {
       prepared = { patched: false, error: String(error).slice(0, 300) }
       record({ event: 'failed', error: prepared.error })

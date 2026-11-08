@@ -190,11 +190,16 @@ DSH 的会话日志里，连不上模型服务时只写一句 `DeepSeek Messages
 
 和 Claude Code 不同：没写过清单、清单为空或已全部完成时不提醒，不引导模型去用这个工具。子代理按自己的会话分开计数。DSH 重启后插件不知道之前的清单，下一次 `todo_write` 之前不会提醒。
 
+收尾检查：中途提醒之后，模型仍可能在最后一次提醒和交付之间做完剩下的事，结束时清单差几项没打勾。DSH 在模型给出最终答复、准备结束这一轮时会调用 `agent/turn-stopping` 钩子；这时清单还有没完成的项，插件就往下一步排一条消息，让模型只调一次 `todo_write` 把清单对齐（真没做完的项保持原状），不再写第二段话。这一步只有 `todo_write` 时直接结束本轮；模型若又开始干活（同一步还有别的工具），照常继续。每轮最多检查一次，只管顶层会话（子代理的最后一步要交回父会话）。
+
+DSH 的聊天界面只把一轮的最后一步当作回答，最后一步只有 `todo_write` 时整轮就没有回答、总结被收进折叠里。chat-answer-fix 为此多改一处：已结束的一轮最后一步只是 `todo_write` 时，取前面最近一段正文当回答。所以 `closingCheck` 默认 `auto`：chat-answer-fix 的这处修改生效时才开。
+
 | 配置 | 默认值 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 设为 `false` 关闭 |
 | `stepsSinceWrite` | `15` | 清单多少步没更新才提醒 |
 | `stepsBetweenReminders` | `15` | 两次提醒之间至少隔多少步 |
+| `closingCheck` | `'auto'` | 结束一轮时清单还有未完成项就让模型补一次；`auto` 表示 chat-answer-fix 生效时才开，也可写 `true` / `false` |
 
 ## 配合 dsh-sentinel
 

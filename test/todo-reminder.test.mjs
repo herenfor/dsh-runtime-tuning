@@ -13,7 +13,7 @@ const OPEN = [{ content: '盘点样书', status: 'in_progress' }, { content: '�
 
 function fakeHost(config) {
   const handlers = {}
-  apply({ on: (name, fn) => { handlers[name] = fn } }, config)
+  apply({ on: (name, fn) => { handlers[name] = fn } }, { closingCheck: false, ...config })
   const session = { id: 's' }
   const notes = []
   const host = {
@@ -101,7 +101,7 @@ test('阈值可配，enabled: false 时不挂钩子', async () => {
   await host.steps(5)
   assert.equal(host.notes.length, 2)
   const handlers = {}
-  apply({ on: (name, fn) => { handlers[name] = fn } }, { enabled: false })
+  apply({ on: (name, fn) => { handlers[name] = fn } }, { enabled: false, closingCheck: false })
   assert.deepEqual(Object.keys(handlers), [])
 })
 
@@ -116,10 +116,71 @@ test('默认 15 步才提醒', async () => {
 
 test('提醒出错不影响工具结果', async () => {
   const handlers = {}
-  apply({ on: (name, fn) => { handlers[name] = fn } })
+  apply({ on: (name, fn) => { handlers[name] = fn } }, { closingCheck: false })
   handlers['session/event']({ id: 's' }, { type: 'todo/write', data: { todos: OPEN } })
   for (let i = 0; i < 15; i++) handlers['session/event']({ id: 's' }, { type: 'step/start', data: {} })
   const result = await handlers['tools/execute']({ name: 'bash', agent: { session: { id: 's' } }, deferContext: () => { throw new Error('boom') } }, async () => 'ok')
   assert.equal(result, 'ok')
   assert.match(reminderText(OPEN, 12), /last 12 steps/)
+})
+
+/** 收尾检查用的假宿主：带 agent/turn-stopping、agent.inject 和 concludeTurn。 */
+function closingHost(header = { delegationDepth: 0 }) {
+  const handlers = {}
+  apply({ on: (name, fn) => { handlers[name] = fn } }, { closingCheck: true })
+  const session = { id: 's', header }
+  const injected = []
+  const agent = { session, inject: (m) => injected.push(m) }
+  const event = (type, data) => handlers['session/event'](session, { type, data })
+  return {
+    handlers, injected, event,
+    stopping: (turn = 1) => handlers['agent/turn-stopping']?.({ agent, turn }),
+    reply: (...names) => event('assistant/message', { message: { content: names.map((name) => ({ type: 'tool-call', name })) } }),
+    exec: async (name) => {
+      let concluded = false
+      await handlers['tools/execute']({ name, agent: { session }, concludeTurn: () => { concluded = true }, deferContext: () => {} }, async () => 'ok')
+      return concluded
+    },
+  }
+}
+
+test('收尾检查：清单有未完成项时排一条消息，只调 todo_write 的那一步直接结束本轮；每轮一次', async () => {
+  const host = closingHost()
+  host.event('todo/write', { todos: OPEN })
+  host.stopping(1)
+  assert.equal(host.injected.length, 1)
+  assert.match(host.injected[0].content[0].text, /ending this turn[\s\S]*- \[>\] 盘点样书 \(in progress\)/)
+  host.reply('todo_write')
+  host.event('todo/write', { todos: OPEN.map((t) => ({ ...t, status: 'completed' })) })
+  assert.equal(await host.exec('todo_write'), true)
+  host.stopping(1)  // 结束那一步之后 DSH 会再问一次：同一轮不再排
+  assert.equal(host.injected.length, 1)
+  host.event('turn/end', {})
+  host.event('todo/write', { todos: OPEN })
+  host.stopping(2)
+  assert.equal(host.injected.length, 2)
+})
+
+test('收尾检查：模型又开始干活（同一步还有别的工具）时不结束本轮；清单已完成、没写过、子代理都不检查', async () => {
+  const host = closingHost()
+  host.event('todo/write', { todos: OPEN })
+  host.stopping(1)
+  host.reply('todo_write', 'bash')
+  assert.equal(await host.exec('todo_write'), false)
+  const done = closingHost()
+  done.event('todo/write', { todos: OPEN.map((t) => ({ ...t, status: 'completed' })) })
+  done.stopping(1)
+  const never = closingHost()
+  never.stopping(1)
+  const child = closingHost({ delegationDepth: 1 })
+  child.event('todo/write', { todos: OPEN })
+  child.stopping(1)
+  assert.deepEqual([done.injected.length, never.injected.length, child.injected.length], [0, 0, 0])
+  assert.equal(await never.exec('todo_write'), false)  // 没排过消息的 todo_write 不结束本轮
+})
+
+test('收尾检查关闭时不挂 agent/turn-stopping', () => {
+  const handlers = {}
+  apply({ on: (name, fn) => { handlers[name] = fn } }, { closingCheck: false })
+  assert.equal(handlers['agent/turn-stopping'], undefined)
 })

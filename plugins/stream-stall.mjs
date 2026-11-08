@@ -83,7 +83,9 @@ export function wrapFetch(original, { stallSeconds, firstContentSeconds }, { act
     }
     const count = createSseCounter((type) => {
       events++
-      if (!IDLE_TYPES.has(type)) arm(stallSeconds, 'stalled')
+      // message_stop 之后回答已经完整，不再计时（DSH 读到它就停止读取）。
+      if (type === 'message_stop') clear()
+      else if (!IDLE_TYPES.has(type)) arm(stallSeconds, 'stalled')
     })
     signal.addEventListener('abort', clear, { once: true })
     arm(firstContentSeconds, 'first-content')
@@ -91,6 +93,8 @@ export function wrapFetch(original, { stallSeconds, firstContentSeconds }, { act
       start(controller) { out = controller },
       transform(chunk, controller) { controller.enqueue(chunk); count(chunk) },
       flush() { clear() },
+      // DSH 读完 message_stop 就取消读取，不会走到 flush；不撤计时器的话 stallSeconds 后会对已结束的请求误报一次。
+      cancel() { clear() },
     }))
     return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })
   }
