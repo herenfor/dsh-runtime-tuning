@@ -233,6 +233,14 @@ export function commandNotes(exec, jobs, now = Date.now()) {
 /** 看过结果才能判断的提醒：没有新输出还在查、子代理还在跑。 */
 export function resultNote(exec, result) {
   const text = JSON.stringify(result ?? '')
+  // 前台命令到点转后台：A/B 里模型转后台后常立刻 job_output 看一眼，多花一整步。
+  const promoted = (exec.name === 'bash' || exec.name === 'pwsh') && text.match(/still running after \d+ms; moved to background job ([\w-]+)/)
+  if (promoted) return {
+    kind: 'promoted',
+    text: `[dsh-wait-guard] The command is still running as background job ${promoted[1]}; the output above is partial. ` +
+      'DSH posts a notice with its result when it finishes, so do not check it with job_output or start it again now. ' +
+      'Continue with work that does not depend on it; if your next step needs its result and nothing else is left, call job_output once with wait: true.',
+  }
   if (exec.name === 'job_output' && text.includes('(no new output)') && text.includes('[status: running]')) return {
     kind: 'poll-job',
     text: '[dsh-wait-guard] Nothing new since your last read. DSH notifies you when this job finishes; do other work or end your turn instead of checking again.',

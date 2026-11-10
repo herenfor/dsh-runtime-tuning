@@ -387,3 +387,14 @@ test('轮询：job_output 没有新输出且还在跑、list_agents 里有子代
   assert.equal(resultNote({ name: 'list_agents' }, out('3693bedb [running] — 研究大模型公司')).kind, 'poll-agents')
   assert.equal(resultNote({ name: 'list_agents' }, out('3693bedb [completed]')), undefined)
 })
+
+test('转后台：前台命令到点转成后台任务时提醒不要立刻查看，命令正常结束或其他工具不提醒', () => {
+  const out = (text) => ({ content: [{ type: 'text', text }] })
+  const note = resultNote({ name: 'bash' }, out('smoke 3/5 ok\n[still running after 30000ms; moved to background job bash-d5539480eb3f47a3]'))
+  assert.equal(note.kind, 'promoted')
+  assert.match(note.text, /bash-d5539480eb3f47a3/)
+  assert.match(note.text, /wait: true/)
+  assert.equal(resultNote({ name: 'pwsh' }, out('[still running after 30000ms; moved to background job pwsh-1]')).kind, 'promoted')
+  assert.equal(resultNote({ name: 'bash' }, out('smoke 5/5 ok')), undefined)
+  assert.equal(resultNote({ name: 'read' }, out('[still running after 30000ms; moved to background job bash-x]')), undefined)
+})
