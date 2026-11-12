@@ -5,7 +5,7 @@
 - 适配 DSH `0.2.2-rc.2`：官方聊天界面的 `client.js` 换成压缩写法（字符串用反引号、箭头函数去空格、省分号），chat-answer-fix 的三处锚点全部匹配不到，日志里记成 `unpatched`，回答折叠、显示设置、`todo-reminder` 收尾检查和 `wait-guard` 的 `concludeTurn` 一起失效。现在三处都按正则匹配，压缩前后（rc.1 未压缩写法）都能改，替换时沿用原文引号；找不到要改的那一行时仍原样使用官方文件。
 - 调优预设按 rc.2 的 standard 更新：`tool-subagent-control` 加 `config.interrupt: false`，新增 `tool-office`。`skill-filesystem` 的 `customSkillDirs` 没有照抄：它用声明文件里的 `baseUrl` 解析 `@deepseek-ai/dsh-agent-preset/skills`，而调优预设声明在插件包里，照抄会让预设挂载失败；调优模式因此没有 dsh-doc 技能，漂移测试显式允许这一处差异。
 - wait-guard 的 L2 契约测试显式挂上 `@deepseek-ai/dsh-tool-executor-native`：rc.2 的 `tools.execute` 需要执行器插件，真实组合里由 dsh-base 提供。
-- 验证：全量自动测试 119/120，chat-answer-fix、调优预设、wait-guard 的 L2 都过；`secret-files` 的 L2 在只读 `$HOME` 的环境里建不了临时目录，属环境限制。rc.2 上还没跑真实会话（L1/L2 已过，L3 待实测）。
+- 验证：全量自动测试 119/120，chat-answer-fix、调优预设、wait-guard 的 L2 都过；`secret-files` 的 L2 在只读 `$HOME` 的环境里建不了临时目录，属环境限制。重启后在 rc.2 的 `web` profile 实测：chat-answer-fix 记为 `patched`（settings/closing 都为 true），`wait-guard` 的 `concludeTurn` 和 `todo-reminder` 的 `closingCheck` 恢复 `true`，调优预设会话正常运行、`interrupt_agent` 不再出现，显示设置刷新后保留。
 
 ## 0.2.11 · 2026-11-11
 
