@@ -15,30 +15,32 @@ import { createRecorder } from './log.mjs'
 
 const record = createRecorder('chat-answer-fix.log')
 export const UI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'ui-chat')
-export const ANCHOR = 'return data.blocks.some((block) => block.kind === "tool-call") ? null : data;'
-export const REPLACEMENT = 'return data.blocks.some((block) => block.kind === "tool-call") && turn.status !== "closed" ? null : data;'
+// 0.2.2-rc.2 起官方 client.js 换成压缩写法：字符串用反引号、箭头函数去空格、语句省分号。
+// 三处都按正则找，压缩前后的写法都能改；替换时沿用原文的引号，结果仍是合法 JS。
+export const ANSWER_PATTERN = /return data\.blocks\.some\(\(?block\)?\s*=>\s*block\.kind\s*===\s*(["'`])tool-call\1\s*\)\s*\?\s*null\s*:\s*data/
+export const ANSWER_REPLACEMENT = 'return data.blocks.some(block => block.kind === $1tool-call$1 && turn.status !== $1closed$1) ? null : data'
 // latestAnswer 只看最后一步。收尾补清单那一步只有 todo_write、没有正文，不改的话整轮没有回答，总结被收进折叠里。
-export const CLOSING_ANCHOR = 'const data = turn.steps.at(-1)?.data.get("assistant-step");'
+export const CLOSING_PATTERN = /const data\s*=\s*turn\.steps\.at\(-1\)\?\.data\.get\((["'`])assistant-step\1\)\s*;?/
 export const CLOSING_REPLACEMENT = 'const last = turn.steps.at(-1)?.data.get("assistant-step"); ' +
   'const todoOnly = turn.status === "closed" && Array.isArray(last?.blocks) && last.blocks.some((block) => block.kind === "tool-call") && ' +
   'last.blocks.every((block) => block.kind === "reasoning" || (block.kind === "tool-call" && block.name === "todo_write") || (block.kind === "text" && block.text.trim() === "")); ' +
   'const data = (todoOnly ? turn.steps.slice(0, -1).reverse().map((step) => step.data.get("assistant-step")).find((step) => isFinalAssistant(step) && hasAssistantReplyContent(step.blocks)) : void 0) ?? last;'
 // 浏览器那一半按 "ui-chat" 读写显示设置（transcriptView 等），可设置表单登记在正在运行的这一行 runtime-tuning-ui-chat 名下：
 // 不改的话读到的是空配置（退回默认的 detailed），在界面上改了也存不下，重启又回到详细。
-export const SETTINGS_ANCHOR = 'const CHAT_SETTINGS_NAMESPACE = "ui-chat";'
-export const SETTINGS_REPLACEMENT = 'const CHAT_SETTINGS_NAMESPACE = "runtime-tuning-ui-chat";'
+export const SETTINGS_PATTERN = /const CHAT_SETTINGS_NAMESPACE\s*=\s*(["'`])ui-chat\1/
+export const SETTINGS_REPLACEMENT = 'const CHAT_SETTINGS_NAMESPACE = $1runtime-tuning-ui-chat$1'
 
-const replaceOnce = (source, anchor, replacement) => {
-  const at = source.indexOf(anchor)
-  if (at < 0 || source.indexOf(anchor, at + 1) >= 0) return { text: source, done: false }
-  return { text: source.slice(0, at) + replacement + source.slice(at + anchor.length), done: true }
+const replaceOnce = (source, pattern, replacement) => {
+  const matches = source.match(new RegExp(pattern.source, 'g'))
+  if (matches === null || matches.length !== 1) return { text: source, done: false }
+  return { text: source.replace(pattern, replacement), done: true }
 }
 
 /** 三处各自只在要改的那一行恰好出现一次时替换；patched 指回答判定那一处，closing 指收尾补清单那一处。 */
 export function patchClient(source) {
-  const answer = replaceOnce(source, ANCHOR, REPLACEMENT)
-  const settings = replaceOnce(answer.text, SETTINGS_ANCHOR, SETTINGS_REPLACEMENT)
-  const closing = replaceOnce(settings.text, CLOSING_ANCHOR, CLOSING_REPLACEMENT)
+  const answer = replaceOnce(source, ANSWER_PATTERN, ANSWER_REPLACEMENT)
+  const settings = replaceOnce(answer.text, SETTINGS_PATTERN, SETTINGS_REPLACEMENT)
+  const closing = replaceOnce(settings.text, CLOSING_PATTERN, CLOSING_REPLACEMENT)
   return { text: closing.text, patched: answer.done, settings: settings.done, closing: closing.done }
 }
 

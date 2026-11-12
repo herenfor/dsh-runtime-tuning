@@ -59,8 +59,22 @@ test('L2：调优预设与本机 DSH 的 standard 只差有意去掉和加上的
   const standard = flat(presetOf(load(readFileSync(join(findHostPackage(dsh, 'dsh-web-app'), 'presets/standard.patch.yml'), 'utf8')), 'standard'))
   const ours = flat(presetOf(load(patch), 'tuned'))
   const removed = ['tool-schedule', 'command-goal', 'tool-goal', 'planning', 'plan-mode', 'tool-subagent-fork', 'workflow-ptc', 'tool-workflow']
+  // standard 的 skill-filesystem.customSkillDirs 用声明文件里的 baseUrl 解析 @deepseek-ai/dsh-agent-preset/skills；
+  // 调优预设声明在插件包里，照抄会在挂载时解析失败。调优模式因此没有 dsh-doc 技能，其余配置必须一致。
+  const withoutSkillDirs = (row) => {
+    const value = JSON.parse(row)
+    if (value.config) {
+      delete value.config.customSkillDirs
+      if (Object.keys(value.config).length === 0) delete value.config
+    }
+    return JSON.stringify(value)
+  }
   const drift = []
-  for (const [id, row] of standard) if (!removed.includes(id) && ours.get(id) !== row) drift.push(`${id}\n  standard: ${row}\n  tuned:    ${ours.get(id)}`)
+  for (const [id, row] of standard) {
+    if (removed.includes(id)) continue
+    const same = id === 'skill-filesystem' ? withoutSkillDirs(row) === ours.get(id) : ours.get(id) === row
+    if (!same) drift.push(`${id}\n  standard: ${row}\n  tuned:    ${ours.get(id)}`)
+  }
   for (const id of ours.keys()) if (!standard.has(id) && id !== 'tool-use-prompt') drift.push(`${id} 只在调优预设里`)
   for (const id of removed) if (!standard.has(id)) drift.push(`${id} 已不在 standard 里，去掉的清单要更新`)
   assert.deepEqual(drift, [], `DSH 的 standard 变了，按下面的差异更新调优预设：\n${drift.join('\n')}`)

@@ -97,13 +97,17 @@ test('apply 挂载 tools/execute：冻结参数整对象替换并注入 deferCon
   const cordisFile = pick('@deepseek-ai+cordis@', '@deepseek-ai/cordis')
   const spFile = pick('@deepseek-ai+dsh-system-prompt@', '@deepseek-ai/dsh-system-prompt')
   const toolsFile = pick('@deepseek-ai+dsh-tools@', '@deepseek-ai/dsh-tools')
-  if (!cordisFile || !spFile || !toolsFile) return
+  const executorFile = pick('@deepseek-ai+dsh-tool-executor-native@', '@deepseek-ai/dsh-tool-executor-native')
+  if (!cordisFile || !spFile || !toolsFile || !executorFile) return
   const { Context } = await import(pathToFileURL(cordisFile).href)
   const spMod = await import(pathToFileURL(spFile).href)
   const toolsMod = await import(pathToFileURL(toolsFile).href)
+  const executorMod = await import(pathToFileURL(executorFile).href)
   const ctx = new Context()
   ctx.plugin(spMod.default)
   ctx.plugin(toolsMod.default)
+  // 0.2.2-rc.2 的 dsh-tools 不再自带执行器：真实组合里由 dsh-base 挂 native executor（该包没有 default 导出）
+  ctx.plugin(executorMod.default ?? executorMod)
   ctx.plugin({ name: 'wg-test', apply })
   await new Promise((r) => setTimeout(r, 30))
   ctx.tools.register({
@@ -112,12 +116,14 @@ test('apply 挂载 tools/execute：冻结参数整对象替换并注入 deferCon
     output: { schema: { type: 'object', additionalProperties: true }, render: (_a, v) => [{ type: 'text', text: v.text }] },
     async execute(args) { return { text: `timeoutMs=${args.timeoutMs}` } },
   })
+  // 0.2.2-rc.2 的 execute 收一批调用（calls），结果是 results + additionalContexts，不再是单条
   const res = await ctx.tools.execute({
-    callId: 'c1', rootCallId: 'c1', signal: new AbortController().signal,
-    name: 'bash', arguments: { command: 'cargo build', timeoutMs: 300000 },
+    calls: [{ id: 'c1', name: 'bash', arguments: JSON.stringify({ command: 'cargo build', timeoutMs: 300000 }) }],
+    signal: new AbortController().signal,
   })
-  assert.equal(res.isError, false)
-  assert.equal(res.value.text, 'timeoutMs=30000')
+  assert.equal(res.results.length, 1)
+  assert.equal(res.results[0].result.isError, false)
+  assert.equal(res.results[0].result.value.text, 'timeoutMs=30000')
   assert.equal(res.additionalContexts?.length, 1)
   // agent loop 把 additionalContexts 当消息拼进下一步，会读 source.kind（传字符串时这一轮报错中断）
   assert.equal(res.additionalContexts[0].source.kind, 'dsh-wait-guard')

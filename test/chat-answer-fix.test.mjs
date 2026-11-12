@@ -5,16 +5,26 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'chat-answer-fix-'))
-const { ANCHOR, REPLACEMENT, CLOSING_ANCHOR, CLOSING_REPLACEMENT, SETTINGS_ANCHOR, SETTINGS_REPLACEMENT, chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
+const { chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
 const { resolveConclude } = await import('../plugins/wait-guard.mjs')
 
-test('只在要改的那一行恰好出现一次时替换', () => {
-  assert.deepEqual(patchClient(`a\n${CLOSING_ANCHOR}\n${ANCHOR}\n${SETTINGS_ANCHOR}\nb`),
-    { text: `a\n${CLOSING_REPLACEMENT}\n${REPLACEMENT}\n${SETTINGS_REPLACEMENT}\nb`, patched: true, settings: true, closing: true })
+test('三处各自只在恰好匹配一次时替换（兼容 rc.2 压缩后的写法）', () => {
+  const compressed = 'function latestAnswer(turn){const data=turn.steps.at(-1)?.data.get(`assistant-step`);if(!isFinalAssistant(data)||!hasAssistantReplyContent(data.blocks))return null;return data.blocks.some(block=>block.kind===`tool-call`)?null:data}\nconst CHAT_SETTINGS_NAMESPACE=`ui-chat`;'
+  const patched = patchClient(compressed)
+  assert.equal(patched.patched, true)
+  assert.equal(patched.settings, true)
+  assert.equal(patched.closing, true)
+  assert.match(patched.text, /turn\.status !== `closed`/)
+  assert.match(patched.text, /const CHAT_SETTINGS_NAMESPACE = `runtime-tuning-ui-chat`/)
+  assert.match(patched.text, /const last = turn\.steps\.at\(-1\)/)
+  // rc.1 的双引号写法（未压缩）照样能改
+  const legacy = 'return data.blocks.some((block) => block.kind === "tool-call") ? null : data;\nconst data = turn.steps.at(-1)?.data.get("assistant-step");\nconst CHAT_SETTINGS_NAMESPACE = "ui-chat";'
+  const legacyPatched = patchClient(legacy)
+  assert.equal(legacyPatched.patched && legacyPatched.settings && legacyPatched.closing, true)
   assert.deepEqual(patchClient('a\nb'), { text: 'a\nb', patched: false, settings: false, closing: false })
-  assert.equal(patchClient(`${ANCHOR}${ANCHOR}`).patched, false)
+  assert.equal(patchClient(`${compressed}${compressed}`).patched, false)
   // 几处互不影响：回答那行找不到时，设置的命名空间照样要换（运行的仍是我们这一行）
-  assert.deepEqual(patchClient(SETTINGS_ANCHOR), { text: SETTINGS_REPLACEMENT, patched: false, settings: true, closing: false })
+  assert.deepEqual(patchClient('const CHAT_SETTINGS_NAMESPACE=`ui-chat`'), { text: 'const CHAT_SETTINGS_NAMESPACE = `runtime-tuning-ui-chat`', patched: false, settings: true, closing: false })
 })
 
 test('先按 Node 的模块解析从 dsh 入口找：不是 pnpm 安装（比如 npm 全局装、打包进应用）也能找到', () => {
@@ -65,7 +75,11 @@ test('L2：从本机正在用的官方聊天界面生成替身，只差那三行
   assert.deepEqual(generated.dsh, pkg.dsh)
   assert.deepEqual(generated.exports, { '.': './index.mjs', './client': './client.js' })
   const before = readFileSync(join(official, 'lib/client.js'), 'utf8')
-  assert.equal(readFileSync(join(out, 'client.js'), 'utf8'), before.replace(ANCHOR, REPLACEMENT).replace(SETTINGS_ANCHOR, SETTINGS_REPLACEMENT).replace(CLOSING_ANCHOR, CLOSING_REPLACEMENT))
+  const expect = patchClient(before)
+  assert.equal(expect.patched, true)
+  assert.equal(expect.settings, true)
+  assert.equal(expect.closing, true)
+  assert.equal(readFileSync(join(out, 'client.js'), 'utf8'), expect.text)
   assert.ok(existsSync(result.officialIndex))
   assert.deepEqual(readdirSync(out).sort(), ['client.js', 'package.json'])
 })
