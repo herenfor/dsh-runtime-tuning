@@ -96,23 +96,24 @@ test('task_status 参数校验', () => {
 
 // 旧用例覆盖声明计时和 30 分钟硬保底，默认关掉收尾清点；清点的用例单独打开。
 function harness(status = 'idle', config) {
-  const timers = [], woken = [], agent = { status, followup: (m) => woken.push(m) }
+  const timers = [], woken = [], notes = [], agent = { status, followup: (m) => woken.push(m) }
   const tracker = createTracker({
     config: { turnEndAudit: false, ...config },
     now: () => 60 * 60_000,
     setTimer: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t },
     clearTimer: (t) => { t.cleared = true },
     getAgent: () => agent,
+    record: (e) => notes.push(e),
   })
   const s = { id: 's', header: { delegationDepth: 0 } }
   const ev = (type, data = {}) => tracker.onEvent(s, { type, data })
   const waiting = { state: 'waiting', waiting_for: 'bash-1 build', expected_minutes: 5 }
-  return { timers, woken, agent, tracker, ev, waiting }
+  return { timers, woken, notes, agent, tracker, ev, waiting }
 }
 
 test('waiting 且正常结束：按 2 倍预计时间计时，到点唤醒空闲的模型', () => {
   const h = harness()
-  h.ev('turn/start'); h.tracker.declare('s', h.waiting); h.ev('turn/end', { reason: { kind: 'completed' } })
+  h.ev('turn/start'); started(h, 'bash-1'); h.tracker.declare('s', h.waiting); h.ev('turn/end', { reason: { kind: 'completed' } })
   assert.equal(h.timers.length, 1)
   assert.equal(h.timers[0].ms, 10 * 60_000)
   h.timers[0].fn()
@@ -136,19 +137,19 @@ test('done、或没有声明的一轮不计时', () => {
 
 test('完成通知先开了新一轮：计时器被取消', () => {
   const h = harness()
-  h.ev('turn/start'); h.tracker.declare('s', h.waiting); h.ev('turn/end', { reason: { kind: 'completed' } })
+  h.ev('turn/start'); started(h, 'bash-1'); h.tracker.declare('s', h.waiting); h.ev('turn/end', { reason: { kind: 'completed' } })
   h.ev('turn/start')
   assert.equal(h.timers[0].cleared, true)
 })
 
 test('模型正忙就不唤醒；连续兜底唤醒有上限，用户发消息后重置', () => {
   const busy = harness('running')
-  busy.ev('turn/start'); busy.tracker.declare('s', busy.waiting); busy.ev('turn/end', { reason: { kind: 'completed' } })
+  busy.ev('turn/start'); started(busy, 'bash-1'); busy.tracker.declare('s', busy.waiting); busy.ev('turn/end', { reason: { kind: 'completed' } })
   busy.timers[0].fn()
   assert.equal(busy.woken.length, 0)
 
   const h = harness()
-  const round = () => { h.ev('turn/start'); h.tracker.declare('s', h.waiting); h.ev('turn/end', { reason: { kind: 'completed' } }); h.timers.at(-1).fn() }
+  const round = () => { h.ev('turn/start'); started(h, 'bash-1'); h.tracker.declare('s', h.waiting); h.ev('turn/end', { reason: { kind: 'completed' } }); h.timers.at(-1).fn() }
   round(); round(); round()
   assert.equal(h.woken.length, 2)
   h.ev('user/message', { source: { kind: 'user' } })
@@ -214,6 +215,28 @@ test('任务在一轮结束前、或计时期间结束：不唤醒', () => {
   during.ev('turn/start'); started(during, 'bash-a'); during.ev('turn/end', { reason: { kind: 'completed' } })
   ended(during, 'bash-a'); during.timers[0].fn()
   assert.equal(during.woken.length, 0)
+})
+
+test('等的任务结束、完成通知落在同一回合里：waiting 声明作废，不再挂兜底', () => {
+  const h = harness()
+  h.ev('turn/start'); started(h, 'bash-1'); h.tracker.declare('s', h.waiting)
+  ended(h, 'bash-1')  // 完成通知接着当前回合继续，没有新的 turn/start
+  h.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(h.timers.length, 0)
+  assert.equal(h.woken.length, 0)
+  assert.ok(h.notes.some((n) => n.event === 'declared-cleared'))
+})
+
+test('兜底到点时任务已经结束：跳过，不唤醒也不留声明', () => {
+  const h = harness()
+  h.ev('turn/start'); started(h, 'bash-1'); h.tracker.declare('s', h.waiting)
+  h.ev('turn/end', { reason: { kind: 'completed' } })
+  assert.equal(h.timers.length, 1)
+  ended(h, 'bash-1')  // 计时期间任务结束：计时器应被撤掉
+  assert.equal(h.timers[0].cleared, true)
+  h.timers[0].fn()  // 就算已经排队的计时器仍跑到，也不该唤醒
+  assert.equal(h.woken.length, 0)
+  assert.ok(h.notes.some((n) => n.event === 'backstop-skipped' && n.reason === 'jobs finished'))
 })
 
 test('硬保底：按停止结束的一轮不计时，别的会话的任务不算，undeclaredMinutes 为 0 时关闭', () => {

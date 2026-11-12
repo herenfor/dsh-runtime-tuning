@@ -290,7 +290,11 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
     const s = stateOf(id)
     s.timer = undefined
     const pending = pendingJobs(s)
-    if (declared === undefined && pending.length === 0) return note({ event: 'backstop-skipped', session: id, reason: 'jobs finished' })
+    // 到点时已经没有在跑的任务：完成通知可能早就来了，别再叫醒一次；声明也一并作废。
+    if (pending.length === 0) {
+      s.declared = undefined
+      return note({ event: 'backstop-skipped', session: id, reason: 'jobs finished' })
+    }
     const agent = getAgent(id)
     if (agent === undefined || agent.status !== 'idle') return note({ event: 'backstop-skipped', session: id, status: agent?.status })
     if (s.wakes >= c.maxBackstopWakes) return note({ event: 'backstop-exhausted', session: id, wakes: s.wakes })
@@ -333,6 +337,13 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
       if (event.type === 'job/settled') {
         const job = event.data?.jobId
         s.jobs.delete(job); s.services.delete(job); s.acknowledged.delete(job); s.audited.delete(job)
+        // 等的任务都结束了：waiting 声明随之作废。完成通知可能还在同一个回合里继续，
+        // 不能等下一个 turn/start 才清，否则回合结束时会挂一个没有任务的兜底。
+        if (s.declared?.state === 'waiting' && pendingJobs(s).length === 0) {
+          s.declared = undefined
+          disarm(s)
+          note({ event: 'declared-cleared', session: session.id, reason: 'jobs finished' })
+        }
         return
       }
       if (event.type !== 'turn/end') return
@@ -344,7 +355,15 @@ export function createTracker({ config = DEFAULTS, setTimer, clearTimer, getAgen
         s.timer = setTimer(() => audit(session.id), AUDIT_DELAY_MS)
         return note({ event: 'audit-armed', session: session.id, jobs: unclaimedJobs(s).length })
       }
-      if (declared === undefined && (c.undeclaredMinutes <= 0 || pending.length === 0)) return
+      // 没有在跑的任务：等的东西已经结束（完成通知可能落在同一个回合里），不挂兜底。
+      if (pending.length === 0) {
+        if (declared !== undefined) {
+          s.declared = undefined
+          note({ event: 'declared-cleared', session: session.id, reason: 'jobs finished' })
+        }
+        return
+      }
+      if (declared === undefined && c.undeclaredMinutes <= 0) return
       if (reason !== 'completed') return note({ event: 'not-armed', session: session.id, reason })
       const minutes = declared === undefined ? c.undeclaredMinutes : Math.ceil(declared.expected_minutes * c.backstopFactor)
       s.timer = setTimer(() => fire(session.id, declared, minutes), minutes * 60_000)
