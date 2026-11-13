@@ -29,4 +29,4 @@ jobs:
       - name: Run tests
         run: npm test
       - name: Check package contents
-        run: npm pack --dry-run
+        run: npm run check:package

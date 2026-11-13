@@ -8,6 +8,16 @@
 
 这里既是一组可以安装的 DSH 插件，也是这个过程的记录。随着分析推进，插件会不断增加。
 
+## 安装
+
+npm 包名为 `@herenfor/dsh-tune`（首次发布后可用）。在 DSH 插件页添加第三方插件，填写这个名字，或运行：
+
+```bash
+dsh plugin --profile web add @herenfor/dsh-tune
+```
+
+旧的 GitHub/link 安装请先移除 `dsh-runtime-tuning`，避免重复加载；内部配置 id 保持不变。详见 [安装与配置](docs/configuration.md)。
+
 ## 起点：一份 9.7 小时的会话
 
 我把自己日常使用 DSH 的一份会话导出来，按事件逐条统计。这份会话有 119 轮对话、2347 次工具调用，跨度 9.7 小时，内容主要是一个项目的反复发行（测试、编译、归档、上传）。
@@ -218,3 +228,16 @@ npm test
 ## 许可证
 
 [MIT](LICENSE)
+
+
+## 发布
+
+由所有者在 WSL 中执行。先提交并推送代码，让 main 工作区干净且与 origin/main 一致，再运行：
+
+```bash
+scripts/release.sh 0.2.14 --dry-run
+npm login                        # 登录过期时执行
+scripts/release.sh 0.2.14 --local
+```
+
+脚本先跑单元测试和实际打包安装检查，再发布到 npm；确认 registry 可查后才打标签并推送。不自动更新已安装插件。预发布版本使用 next 标签，正式版本使用 latest。发布失败时保留源码，可修复后重跑；如果 npm 已有同版本，脚本会核对已发布包的完整性，再补标签。版本号在 package.json 中维护，每个版本只能发布一次。

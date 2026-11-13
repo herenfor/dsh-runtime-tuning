@@ -10,10 +10,10 @@ ask-nonblocking 依赖 DSH 的内部接口（`agent/created` 事件、`agent.ctx
 
 ## 安装
 
-在 WSL 终端运行：
+在插件页添加第三方插件，填写 `@herenfor/dsh-tune`；或在 WSL 终端运行（首次 npm 发布后可用）：
 
 ```bash
-dsh plugin --profile web add github:herenfor/dsh-runtime-tuning
+dsh plugin --profile web add @herenfor/dsh-tune
 ```
 
 或者先克隆到本地，再用本地路径安装：
@@ -21,6 +21,8 @@ dsh plugin --profile web add github:herenfor/dsh-runtime-tuning
 ```bash
 dsh plugin --profile web add link:/path/to/dsh-runtime-tuning
 ```
+
+从旧的 GitHub/link 安装迁移时，先备份 profile 配置，等任务结束，再移除旧包 `dsh-runtime-tuning` 后安装新包；不要同时启用两份。内部插件 id、日志目录和原有配置覆盖保持不变。命令里的 `web` 是 CLI profile；Desktop 或 WSL 桥接端请在相应插件页操作，避免装错运行位置。
 
 安装后，等当前任务结束，再重启 DSH 并刷新浏览器页面。作者本机用的是 `link:` 方式。
 
@@ -224,7 +226,7 @@ DSH 的模型几乎只在最后才写正文，干活时不说话：近期 17 个
 ## 卸载
 
 ```bash
-dsh plugin --profile web remove dsh-runtime-tuning
+dsh plugin --profile web remove @herenfor/dsh-tune
 ```
 
 卸载后重启 DSH。如果在 profile 补丁里写过配置覆盖，也一起删掉。

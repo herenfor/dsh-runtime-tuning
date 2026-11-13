@@ -23,7 +23,7 @@ test('tool-use-prompt 只加一段工具使用规则，不限制思考', () => {
 
 test('调优预设去掉了定时、goal、计划模式、workflow 和 subagent_fork', () => {
   for (const gone of ['dsh-tool-schedule', 'dsh-tool-goal', 'dsh-command-goal', 'dsh-plan-mode', 'dsh-tool-workflow', 'dsh-workflow-ptc', 'provider: fork']) assert.equal(tuned.includes(gone), false, gone)
-  assert.match(tuned, /name: dsh-runtime-tuning\/plugins\/tool-use-prompt\.mjs/)
+  assert.match(tuned, /name: '@herenfor\/dsh-tune\/plugins\/tool-use-prompt\.mjs'/)
 })
 
 test('L2：预设引用的官方包在本机 DSH 里都存在（含子路径导出）', (t) => {

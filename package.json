@@ -1,7 +1,6 @@
 {
-  "name": "dsh-runtime-tuning",
-  "version": "0.2.13",
-  "private": true,
+  "name": "@herenfor/dsh-tune",
+  "version": "0.2.14",
   "type": "module",
   "dsh": {
     "bundle": {
@@ -28,7 +27,8 @@
     "dsh": ">=0.2.2-rc.1 <0.3.0-0"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "check:package": "node scripts/check-package.mjs"
   },
   "files": [
     "plugins",
@@ -38,5 +38,9 @@
     "CHANGELOG.md",
     "LICENSE"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }

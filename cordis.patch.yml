@@ -133,4 +133,4 @@
             disabled: true
           # 预设里的子插件按宿主的路径解析（官方子插件都写包名），所以这里也写包名加子路径
           - id: tool-use-prompt
-            name: dsh-runtime-tuning/plugins/tool-use-prompt.mjs
+            name: '@herenfor/dsh-tune/plugins/tool-use-prompt.mjs'
