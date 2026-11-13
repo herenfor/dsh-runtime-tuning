@@ -1,11 +1,11 @@
 # 发布到 npm
 
-由所有者在 WSL 中执行。先提交并推送代码，让 main 工作区干净且与 origin/main 一致，再运行：
+当前为审批卡与表格候选版本，尚未通过 Windows Desktop 和远端生产验收；先安装候选实测。确认后由所有者在 WSL 中执行（预发布进入 next 标签）。先提交并推送代码，让 main 工作区干净且与 origin/main 一致，再运行：
 
 ```bash
-scripts/release.sh 0.2.14 --dry-run
+scripts/release.sh 0.2.15-dev.5 --dry-run
 npm login                        # 登录过期时执行
-scripts/release.sh 0.2.14 --local
+scripts/release.sh 0.2.15-dev.5 --local
 ```
 
 脚本先跑单元测试和实际打包安装检查，再发布到 npm；确认 registry 可查后才打标签并推送。不自动更新已安装插件。预发布版本使用 next 标签，正式版本使用 latest。发布失败时保留源码，可修复后重跑；如果 npm 已有同版本，脚本会核对已发布包的完整性，再补标签。版本号在 package.json 中维护，每个版本只能发布一次。

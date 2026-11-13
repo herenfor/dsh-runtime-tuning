@@ -6,6 +6,7 @@ import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'chat-answer-fix-'))
 const { chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
+const { patchPresentation } = await import('../plugins/chat-presentation.mjs')
 const { resolveConclude } = await import('../plugins/wait-guard.mjs')
 
 test('三处各自只在恰好匹配一次时替换（兼容 rc.2 压缩后的写法）', () => {
@@ -59,7 +60,7 @@ test('concludeTurn: auto 只在补丁打上时结束本轮', () => {
   assert.equal(resolveConclude(false, () => true), false)
 })
 
-test('L2：从本机正在用的官方聊天界面生成替身，只差那三行', (t) => {
+test('L2：从本机正在用的官方聊天界面生成替身，回答与显示补丁分别按契约接入', (t) => {
   const pnpm = join(homedir(), '.local/share/dsh-cli/node_modules/.pnpm')
   const dsh = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
   if (!existsSync(pnpm) || !existsSync(dsh)) return t.skip('host dsh-cli install absent')
@@ -73,15 +74,15 @@ test('L2：从本机正在用的官方聊天界面生成替身，只差那三行
   const generated = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
   assert.equal(generated.name, '@deepseek-ai/dsh-client-ui-chat')  // 另外 8 个界面插件按这个名字依赖它
   assert.deepEqual(generated.dsh, pkg.dsh)
-  assert.deepEqual(generated.exports, { '.': './index.mjs', './client': './client.js' })
+  assert.deepEqual(generated.exports, { '.': './index.mjs', './client': './client.js', ...(result.assets ? { './assets/*': './assets/*' } : {}) })
   const before = readFileSync(join(official, 'lib/client.js'), 'utf8')
   const expect = patchClient(before)
   assert.equal(expect.patched, true)
   assert.equal(expect.settings, true)
   assert.equal(expect.closing, true)
-  assert.equal(readFileSync(join(out, 'client.js'), 'utf8'), expect.text)
+  assert.equal(readFileSync(join(out, 'client.js'), 'utf8'), patchPresentation(expect.text).text)
   assert.ok(existsSync(result.officialIndex))
-  assert.deepEqual(readdirSync(out).sort(), ['client.js', 'package.json'])
+  assert.deepEqual(readdirSync(out).sort(), [...(result.assets ? ['assets'] : []), 'client.js', 'package.json'])
 })
 
 test('L2：生成的 latestAnswer 在收尾只补了清单时取前一段正文，其余情况和原来一样', (t) => {

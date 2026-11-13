@@ -28,6 +28,8 @@
       name: ./plugins/todo-reminder.mjs
     - id: runtime-tuning-progress-note
       name: ./plugins/progress-note.mjs
+    - id: runtime-tuning-approval-info
+      name: ./plugins/approval-info.mjs
     - id: runtime-tuning-ui-chat
       name: ./ui-chat/index.mjs
     # 调优预设（tuned）：自己写的一份固定预设，用来和 standard 对比把活干完的总耗时。

@@ -230,3 +230,24 @@ dsh plugin --profile web remove @herenfor/dsh-tune
 ```
 
 卸载后重启 DSH。如果在 profile 补丁里写过配置覆盖，也一起删掉。
+
+
+### 审批详情与聊天表格（0.2.15-dev.5）
+
+两项显示功能可分别关闭。写入当前运行端 profile 的 `cordis.patch.yml`，待任务空闲后重启并刷新：
+
+```yaml
+- id: runtime-tuning-ui-chat
+  config:
+    tableLayout: false       # 关闭表格布局覆盖
+    approvalDetails: false   # 关闭审批详情展示，恢复原生标题和命令
+```
+
+默认两项都是 true。关闭详情展示不会关闭理由校验。要关闭理由格式检查和只读快照服务：
+
+```yaml
+- id: runtime-tuning-approval-info
+  disabled: true
+```
+
+运行在 WSL 的任务，需要在 WSL 端安装和配置；插件不会从 Windows 文件系统推断 Linux 路径边界。请求目的仍是模型的说明，不能由 runtime 保证语义真实。模式来自实际工具参数，未核实的真实目录和边界会显示未知。支持的提权参数 schema 或 UI 锚点变化时，该项退回官方展示，不替换批准通道。完整范围见 [本次验收](visual-verification.md)。

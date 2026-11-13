@@ -1,4 +1,5 @@
 // 聊天界面的替身（见 ../plugins/chat-answer-fix.mjs）：生成浏览器那一半，服务端那一半原样转出官方的。
+import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { createRecorder } from '../plugins/log.mjs'
 import { prepareChatFix } from '../plugins/chat-answer-fix.mjs'
@@ -17,7 +18,8 @@ export const SETTING_FIELDS = Object.keys(official.Config?.dict ?? {}).length > 
 const BUSY = /transactions cannot be nested/
 const RETRY_MS = [500, 1000, 2000, 4000, 8000]
 
-export const Config = official.Config
+const z = createRequire(fix.officialIndex)('@deepseek-ai/schemastery')
+export const Config = z.object({ ...official.Config.dict, tableLayout: z.boolean().default(true).volatile(), approvalDetails: z.boolean().default(true).volatile() })
 export const inject = official.inject
 export function configOf(entries, id = 'ui-chat') {
   for (const entry of entries ?? []) if (entry.options?.id === id) return entry.options.config

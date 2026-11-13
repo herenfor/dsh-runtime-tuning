@@ -13,7 +13,7 @@ try {
   const [packed] = JSON.parse(npm(['pack', '--json', '--pack-destination', temp]))
   const names = packed.files.map(f => f.path)
   for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/log.mjs', 'ui-chat/index.mjs', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
-  for (const name of names) assert.ok(!/^(?:test|scripts|\.git|\.claude)\/|^ui-chat\/(?:client.js|package.json)$|\.tgz$/.test(name), `unexpected package file: ${name}`)
+  for (const name of names) assert.ok(!/^(?:test|scripts|\.git|\.claude)\/|^ui-chat\/(?:assets\/|client.js$|package.json$)|\.tgz$/.test(name), `unexpected package file: ${name}`)
   npm(['install', '--prefix', temp, '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--offline', join(temp, packed.filename)])
   const fromHost = createRequire(join(temp, 'package.json'))
   const pkgFile = fromHost.resolve('@herenfor/dsh-tune/package.json')
