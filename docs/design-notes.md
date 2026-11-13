@@ -169,4 +169,3 @@ DSH 自带的 ptc 预设（模型写脚本、在脚本里调工具）在这些�
 | 干活时一句话不说，几十分钟只看到工具在跑 | 近期 17 个长会话，带工具调用的步骤写正文的比例大多是 0%；最长连续 208 步、46 分钟没有一句话 | progress-note 照 Claude Code 的做法，3 分钟没有可见正文就请模型在下一次调用工具时顺带汇报一两句 |
 | 审批会卡住整个 step | — | DSH 核心行为，插件做不到（[#8916](https://github.com/deepseek-ai/deepseek-harness/discussions/8916)） |
 | 插话打断不了正在运行的工具 | 插话排队最长 128 秒 | DSH 核心行为，插件做不到（[#11005](https://github.com/deepseek-ai/deepseek-harness/discussions/11005)） |
-
