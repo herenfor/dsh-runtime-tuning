@@ -7,7 +7,7 @@ import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'tuned-'))
 const { findHostPackage } = await import('../plugins/chat-answer-fix.mjs')
-const { TEXT, apply } = await import('../plugins/tool-use-prompt.mjs')
+const { TEXT, apply, resolvePresetConfig } = await import('../plugins/tool-use-prompt.mjs')
 
 const patch = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
 const tuned = patch.slice(patch.indexOf('- id: runtime-tuning-preset-tuned'))
@@ -39,7 +39,7 @@ test('L2：预设引用的官方包在本机 DSH 里都存在（含子路径导�
 })
 
 test('调优预设默认关闭（会话绑定预设，用的人自己打开）', () => {
-  assert.match(tuned, /^- id: runtime-tuning-preset-tuned\n      name: '@deepseek-ai\/dsh-agent-preset'\n      disabled: true\n/)
+  assert.match(tuned, /^- id: runtime-tuning-preset-tuned\n      name: \.\/plugins\/tuned-preset\.mjs\n      disabled: true\n/)
 })
 
 // 手写的预设不会跟着官方变：本机 DSH 的 standard 一改，这里就报出来，按报出的差异手动更新 cordis.patch.yml。
@@ -78,4 +78,19 @@ test('L2：调优预设与本机 DSH 的 standard 只差有意去掉和加上的
   for (const id of ours.keys()) if (!standard.has(id) && id !== 'tool-use-prompt') drift.push(`${id} 只在调优预设里`)
   for (const id of removed) if (!standard.has(id)) drift.push(`${id} 已不在 standard 里，去掉的清单要更新`)
   assert.deepEqual(drift, [], `DSH 的 standard 变了，按下面的差异更新调优预设：\n${drift.join('\n')}`)
+})
+
+
+test('upgrade keeps the preset definition and anchors its own child independently of dependency aliases', () => {
+  for (const name of ['@herenfor/dsh-tune/plugins/tool-use-prompt.mjs', 'dsh-runtime-tuning/plugins/tool-use-prompt.mjs']) {
+    const config = { id: 'tuned', name: 'My tuning', order: 2, plugins: [{ id: 'tool-use-prompt', name }, { id: 'custom', name: 'user-custom-plugin', config: { enabled: true } }] }
+    const url = 'file:///installed-under-old-alias/plugins/tool-use-prompt.mjs'
+    const actual = resolvePresetConfig(config, url)
+    assert.equal(actual.id, config.id); assert.equal(actual.name, config.name)
+    assert.equal(actual.plugins[0].name, url)
+    assert.equal(config.plugins[0].name, name)
+    assert.equal(actual.plugins[1], config.plugins[1])
+  }
+  const custom = { plugins: [{ id: 'tool-use-prompt', name: 'user-replacement' }] }
+  assert.equal(resolvePresetConfig(custom).plugins[0], custom.plugins[0])
 })

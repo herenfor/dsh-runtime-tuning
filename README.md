@@ -42,7 +42,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 安装后等当前任务结束，重启 DSH 并刷新页面。
 
-> **已装过旧版？** 从 GitHub / `link:` 安装迁移时，先备份配置，移除旧包 `dsh-runtime-tuning`，再安装新包，避免重复加载。内部插件 ID、日志目录和原有配置覆盖保持不变。[迁移与安装说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#安装)
+> **已装过旧版？** 旧包名的 `link:` 安装可继续使用，dev.6 会兼容其内部模块定位；无需为了恢复调优预设重装或改配置。若要迁移到 npm 入口，待任务空闲后备份配置、移除旧包再安装新包，避免重复加载。内部插件 ID、日志目录和原有配置覆盖保持不变。[迁移与安装说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#安装)
 
 ## 功能一览
 
@@ -82,7 +82,9 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 效果与验证
 
-插件来自真实会话中的问题分析。已有 rc.1 / rc.2 的真实会话记录。当前候选 **0.2.15-dev.5** 的审批卡与表格，已安装到真实 DSH `0.2.2-rc.2` / `rc.3` 隔离环境，在原生聊天界面检查截图和交互：中英、深浅色、实际 390px 消息列、批准/拒绝/取消及输入法保护。测试使用本地固定回复适配器，工具和审批链真实运行，**不等于生产模型质量或 Windows Desktop 的完整验收**。[本次验收范围与限制 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/visual-verification.md)
+当前修复候选 **0.2.15-dev.6** 已验证旧包名 link 安装的更新链路：保留安装入口、预设启用配置和旧会话绑定，修复内部模块因包名变化无法加载的问题；rc.2 / rc.3 上旧会话可继续、新调优会话可运行。
+
+插件来自真实会话中的问题分析。已有 rc.1 / rc.2 的真实会话记录。审批卡与表格的 **0.2.15-dev.5** 候选已安装到真实 DSH `0.2.2-rc.2` / `rc.3` 隔离环境，在原生聊天界面检查截图和交互：中英、深浅色、实际 390px 消息列、批准/拒绝/取消及输入法保护。测试使用本地固定回复适配器，工具和审批链真实运行，**不等于生产模型质量或 Windows Desktop 的完整验收**。[本次验收范围与限制 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/visual-verification.md)
 
 一次前端任务的 A/B 对比，使用同一个模型和输入，在新会话中分别运行官方原版与「插件包 + `tuned` 预设」：
 

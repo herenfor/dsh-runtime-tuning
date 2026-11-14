@@ -40,7 +40,7 @@
     # 默认关闭：用某个预设开始的对话会一直绑在这个预设上，预设没了或加载失败，这些对话就不能再继续。
     # 想用的在自己的 cordis.patch.yml 里给 runtime-tuning-preset-tuned 这一行写 `disabled: false`。
     - id: runtime-tuning-preset-tuned
-      name: '@deepseek-ai/dsh-agent-preset'
+      name: ./plugins/tuned-preset.mjs
       disabled: true
       config:
         id: tuned
@@ -133,6 +133,6 @@
           - id: tool-plugin-market
             name: '@deepseek-ai/dsh-plugin-market/tools'
             disabled: true
-          # 预设里的子插件按宿主的路径解析（官方子插件都写包名），所以这里也写包名加子路径
+          # 包内的预设适配器会把这个自引用定位到实际安装文件，兼容旧包名的 link 安装
           - id: tool-use-prompt
             name: '@herenfor/dsh-tune/plugins/tool-use-prompt.mjs'

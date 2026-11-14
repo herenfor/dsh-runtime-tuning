@@ -1,6 +1,6 @@
 {
   "name": "@herenfor/dsh-tune",
-  "version": "0.2.15-dev.5",
+  "version": "0.2.15-dev.6",
   "type": "module",
   "dsh": {
     "bundle": {
@@ -28,7 +28,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check:package": "node scripts/check-package.mjs"
+    "check:package": "node scripts/check-package.mjs",
+    "check:preset-upgrade": "node scripts/check-preset-upgrade.mjs"
   },
   "files": [
     "plugins",

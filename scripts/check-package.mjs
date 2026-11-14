@@ -12,7 +12,7 @@ const npm = (args) => execFileSync('npm', args, { cwd: root, encoding: 'utf8', s
 try {
   const [packed] = JSON.parse(npm(['pack', '--json', '--pack-destination', temp]))
   const names = packed.files.map(f => f.path)
-  for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/log.mjs', 'ui-chat/index.mjs', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
+  for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/tuned-preset.mjs', 'plugins/log.mjs', 'ui-chat/index.mjs', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
   for (const name of names) assert.ok(!/^(?:test|scripts|\.git|\.claude)\/|^ui-chat\/(?:assets\/|client.js$|package.json$)|\.tgz$/.test(name), `unexpected package file: ${name}`)
   npm(['install', '--prefix', temp, '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--offline', join(temp, packed.filename)])
   const fromHost = createRequire(join(temp, 'package.json'))
@@ -26,8 +26,10 @@ try {
   const [, prompt] = /name: '(@herenfor\/dsh-tune\/plugins\/tool-use-prompt.mjs)'/.exec(patch) ?? []
   assert.ok(prompt, 'preset uses the published package name')
   assert.ok(fromHost.resolve(prompt).startsWith(installed))
-  // Import one standalone plugin through the same bare specifier used by the preset.
+  // Import the installed prompt module, then verify its runtime self-reference stays inside this installation.
   const module = await import(fromHost.resolve(prompt))
   assert.equal(typeof module.apply, 'function')
+  const config = module.resolvePresetConfig({ id: 'tuned', plugins: [{ id: 'tool-use-prompt', name: prompt }] })
+  assert.equal(fileURLToPath(config.plugins[0].name), fromHost.resolve(prompt))
   console.log(`Package OK: ${pkg.name}@${pkg.version}, ${names.length} files; offline install and preset resolution passed`)
 } finally { rmSync(temp, { recursive: true, force: true }) }

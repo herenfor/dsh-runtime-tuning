@@ -22,3 +22,18 @@ export function apply(ctx) {
   ctx.systemPrompt.section({ name: 'dsh-runtime-tuning-tool-use', order: ctx.systemPrompt.getSectionOrder('TOOL_JOBS') + 2, text: TEXT })
   record({ event: 'loaded' })
 }
+
+// Preset children resolve from the host profile, whose dependency key may still
+// be the pre-npm name. Use this installed module's URL instead of its package name.
+export function resolvePresetConfig(config, moduleUrl = import.meta.url) {
+  const selfNames = new Set([
+    '@herenfor/dsh-tune/plugins/tool-use-prompt.mjs',
+    'dsh-runtime-tuning/plugins/tool-use-prompt.mjs',
+  ])
+  return {
+    ...config,
+    plugins: config.plugins.map(row => row.id === 'tool-use-prompt' && selfNames.has(row.name)
+      ? { ...row, name: moduleUrl }
+      : row),
+  }
+}
