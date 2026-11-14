@@ -1,73 +1,189 @@
-# 审批信息与原生审批卡接入设计
+# 审批 runtime 与两行面板实现方案
 
-状态：0.2.15-dev.5 已实现第一阶段，并完成 rc.2 / rc.3 原生聊天截图和交互验收，详见 [验收范围](visual-verification.md)。实际接口为 Connection RPC `runtimeTuningApproval/read`，复用 Typert 的认证和 session 资源授权，不另开 HTTP 服务。当前只在具有提权参数 schema 的工具实际 dispatch 期间关联审批；前置审批或缺少可靠关联时保留原生详情。工作目录只显示显式工具参数，文件真实边界保持 unknown；没有实现任意脚本影响分析或文件内容读取。下文保留设计依据和后续验收要求。
+状态：`0.2.15-dev.7` 已实现本页的 schema v2、两行界面及官方审批类别适配，完成 rc.2/rc.3 执行对照与 rc.3 隔离浏览器检查；真实会话的基础审批已核对。系统原生 CUA、全部 Desktop/WSL 生命周期及远端环境尚未完成验收，范围见 [visual-verification.md](visual-verification.md)。本页保留设计依据与验收条件，替代旧的“目的、对象、原始调用、展开详情”设计。
 
-界面采用所有者确认的「请求目的 → 本次权限 → 涉及对象 → 原始调用」布局。本设计不改变官方审批策略或授予权限。
+## 目标与边界
 
-## 界面约束
+面板保留原生黄色“等待审批”条、黄色边框和允许/拒绝通道。正文只显示申请原因与申请权限，完整访问使用文字，不画标签盒子，不加展开、复制、脚本或参数区。窄窗自然换行，不能为了物理上的两行而省略权限或持续影响。
 
-复用 rc.3 `ApprovalPanel.module.css`、主题 token 和官方 Button：正文最高 336px，标题 15px/24px，正文间距 6px、内边距 12px 16px 0，按钮高 36px，外框圆角 20px。宽度沿用聊天列的 680–920px 自适应规则并受可用空间约束。脚本默认只展示入口，不展示 import 等没有决策价值的片段；edit 展示替换片段，完整目录和参数放详情。
+审批是工具执行中的 runtime 能力。保留原有工具名称、操作参数、`sandbox_permissions` 和 `justification`，不新增独立的 `request_approval` 工具，不要求每次普通调用填写理由，不增加一次模型总结请求。
 
-目的必须标为「请求目的」，表示模型的请求说明；机器事实从 runtime 提供。脚本中识别的文件始终标「脚本文本引用」，不能据此显示「已确认只修改该文件」或「工作区外」。完整访问权限必须说明不限于展示的文件，不能暗示是单文件授权。
+策略、审计、取消和一次批准仍由官方 `ApprovalService` / `PendingApproval` 管理。插件增加说明规范、受支持工具的结构化适配及参数关联，不通过展示代码直接授权。不改变会话权限默认值，不自动批准只读查询，不给未知工具推定权限。
 
-## 已核对的宿主契约（DSH 0.2.2-rc.3）
+## 现有代码给出的约束
 
-- `dsh-tools/src/pipeline.ts`：`tools/pre-execute` 在执行/前置审批前运行；`tools/execute` 包装器之后进入工具本体。后者可以修改实际 arguments，不能用模型原始 argsRaw 代替最终参数。
-- `dsh-user-approval/src/index.ts`：`approval.request()` 记录官方 asked/decided 审计，通过 `approval/request` waterfall 调用回答者。插件观察器必须原样委托 `next()`，不能自行返回允许，也不更改 never 策略。
-- `dsh-sandbox/src/escalation.ts`：宿主已经校验提权参数配对及严格扩权。交给审批层的字段只有 toolName、callId、reason、displayReason、signal；没有独立的 requestedMode / effectiveMode / resolvedPaths。
-- `dsh-client-ui-chat` 的详情槽位按 callId 从聊天投影中取 argsRaw，仅输出 command 或 terminal_send.text。
-- `dsh-client-ui-approval` 的 ApprovalPanel 组装标题；ApprovalCard 管理答复状态、取消、键盘和按钮。
-
-## 接入方案
-
-新增独立的 `approval-info` 宿主模块及客户端展示模块，共用现有官方 client.js 副本生成机制，但不把所有逻辑塞入 chat-answer-fix。补丁分别报告成功状态，匹配零次/多次时该功能回退官方实现，不能撤销已生效的其他独立修复。
-
-1. **执行前校验。** `tools/pre-execute` 校验已支持工具的提权请求说明，记录会话、agent、callId 与 execution 关联。拒绝缺失说明、只有占位词、超长或含明显凭据的请求；返回一次明确的模型可读错误，要求修正同一工具调用。合法请求继续官方 pipeline。
-2. **审批时生成快照。** `approval/request` 的只读观察器关联当前 execution，在工具包装器改写后读取实际参数。生成不可变快照，再委托原审批回答者。只对已验证的官方工具适配；第三方工具或无法对应的请求显示原始信息，不假定权限语义。
-3. **按需读取。** 提供经过官方连接认证、会话授权的只读元数据接口。拟定 `POST /runtime-tuning/approval-preview/read`，首次按 sessionId、callId 查询，只在唯一 pending 请求匹配时返回 snapshotId / pendingGeneration；后续读取须带 snapshotId。客户端同时校验原生请求 key 仍有效；不能用快照建立新的批准通道。最终注册 API 在接入实验中确定。禁止仅凭文件路径查询任意文件。
-4. **客户端接入。** 在已有 client 副本中确定性替换 ApprovalCommand 的详情注册，保留 useChat 的调用关联。详情包含完整的新布局。原生卡片标题仅在新详情成功挂载并具有对应元数据时隐藏；无 callId、加载失败、契约不符、发生歧义时保留官方标题和原始详情。
-5. **保留批准通道。** 继续使用官方 ApprovalCard、canAnswer、answered、onAllow/onReject、请求取消与输入法保护。展开/复制使用真正的 button。不得在整卡 click/普通 Enter 事件中新增批准动作，不新增「永久允许」或假单文件授权。
-6. **发布前验证。** 先验证槽位覆盖顺序和生成补丁是否唯一匹配；若无法可靠隐藏原标题并保留官方交互，停止该接入方案，单独设计卡片 factory 适配器，不能先交付一个覆盖不确定的版本。
-
-第一阶段不重写整个审批卡。不改官方 dist，不替换审批服务，不添加额外的模型总结请求。
-
-## 信息来源与可信边界
-
-| 字段 | 来源 | 展示语义 |
+| 已有模块 | 可复用的做法 | 本次必须注意 |
 | --- | --- | --- |
-| 请求目的 | 实际工具参数的 justification | 模型请求说明，语义真实性无法由 runtime 保证 |
-| 工具、命令、文件参数 | 当前 execution 的实际参数 | 本次调用事实；不等同于执行后的实际影响 |
-| 权限 | 已适配官方工具的 sandbox_permissions | 标为本次调用申请的权限；无结构化授权证据时不声称 effectiveMode 已核实 |
-| 工作目录 | 对应工具实际 cwd；缺省按该工具的官方解析规则 | 不把会话根目录一概当作工具 cwd |
-| edit/write 目标 | 文件工具 file_path + 实际执行端 FS backend 的解析结果 | 仅能核对真实目标时显示已确认的内/外判断 |
-| bash/pwsh 涉及路径 | 有限文本识别 | 候选引用，可能不全；不能解析 shell/Python 的任意语义 |
-| 修改预览 | edit 的替换片段；必要时受限的文件版本快照 | 片段不等于完整 diff；replace_all 要标明，不能把一次片段行数说成实际总改动 |
-| 脚本规模 | 命令文本的行数与字节数 | 不是修改行数，不是风险等级 |
+| `approval-info` | live execution 关联、会话授权 RPC、pending 生命周期、原因格式回退 | 适配已核对的官方类型；决定与执行授权仍由官方通道负责 |
+| `wait-guard` | 给模型明确纠正路径；基于稳定操作控制重试 | 会在 `tools/execute` 调整 timeout，不能把最初参数等同于最终参数 |
+| `session-tmp` | 在执行端映射路径、保持会话隔离 | `/tmp/x` 可能对应会话私有路径；显示名、实际目标、授权范围不能混为一谈 |
+| `secret-guard` / `secret-files` | 工具前阻断、结果脱敏、日志不写正文 | 用户批准不能绕过这些拒绝；理由及新元数据不能复制凭据 |
+| `fs-view` | 文件后端适配、图像类型兼容 | 当前 stat/version 同步不等于模型读过文件，也不能作为“用户批准了此版本”的证明 |
+| `chat-answer-fix` | 按运行宿主生成客户端副本，锚点唯一匹配，独立功能独立回退 | 继续复用，不能改官方安装文件或损坏已生效的表格修复 |
+| `ask-nonblocking` | 尝试保留官方工具并在作用域内调整配置 | 不能直接照搬其包定位逻辑；实际本机日志存在 host-not-pnpm 加载失败 |
 
-FS 的 `targetKey` 是不透明身份，不可直接把它当 realpath 显示。执行端确认为本地 FS 且有可用解析能力时，才能解析符号链接；新文件检查最近存在的父目录，权限不足/远端 backend/解析失败均保持 unknown。先比较真实工作区根与真实目标，不用简单字符串 startsWith。检测仅是审批时快照，不能替代执行期的沙箱与防竞态校验。
+已检查 rc.2 / rc.3 的宿主包定位、现有聊天补丁锚点及原生审批卡契约，并加入对应集成测试。相同版本要从实际运行的 Host 定位，复用 `findHostPackage`，不要扫描包缓存后猜选一个版本；契约检查与实际系统权限验收分别记录。
 
-## 如何约束模型
+## 真实会话带来的实施取舍
 
-系统提示要求：提权时说明具体动作和需要扩大权限的原因，说明不能冒充 runtime 检查结论；使用已有 sandbox_permissions + justification，不让模型额外伪造 verifiedPaths、outsideWorkspace 等字段。对支持的直接文件工具优先使用 edit/write，避免为了绕过清晰预览而把同一操作包进 shell；不强制把天然脚本任务拆成大量文件工具调用。
+本机只读采样及脱敏统计保存在仓库外，不把原始业务会话放进仓库。经用户确认的模拟任务展示截图单独列在 [approval-examples.md](approval-examples.md)，与原始会话资料分开。
 
-硬校验只处理可判定的问题：缺字段、模式不合法、说明空白/占位、长度超限及明显凭据。不能靠字数、某种语言或「包含因为」判断说明是否真实；不自动把完整访问降级成单文件授权，不替模型补造理由，不通过解析 displayReason 反推权限。一般性「需要更高权限」缺少具体动作时给模型明确纠正反馈；同一 turn+工具名+申请模式+去掉 justification 后的参数摘要最多一次自动纠正（不能按每次都会变化的 callId 重置），连续失败停止重试并说明原因，防止占住对话。
+采样表明，实际问题同时包括模型理由、原生前端主动显示命令、以及工具自行拼接 JSON。首版必须把 `plugin_manager` 纳入，而不能只收紧四种工具的字数限制。
 
-审批的正常运行不依赖模型主动调用额外的“记录审批信息”工具。即使模型忽略提示，用户看到的工具、参数、权限范围和来源标记仍来自 runtime。
+已观察到直接申请扩权、没有在此前使用完全相同参数失败的真实调用。因此本次不新增“必须先失败一次”的硬条件，也不自动执行一次失败的命令作为探测。维持官方执行许可条件；参数 schema 的最小权限和拒绝恢复提示继续保留。
 
-## 快照关联、隔离及失效
+历史里没有出现的拒绝、并发、过期和 PTC 分支，必须在隔离 Host 构造验证，不用历史的全允许样本代替它们。
 
-快照包含 schemaVersion、sessionId、agentId、callId、pendingGeneration、toolName、capturePhase、参数摘要哈希、请求说明、申请权限、实际 cwd、目标及其来源、预览类型、可用状态。摘要不记录到普通诊断日志；脚本/原文只在既有授权客户端按需展示，不额外落盘。
+## 同一版本的接入方式
 
-不能只用全局 callId 或「最近一次请求」关联。缺少稳定 execution/request 关联、同一 callId 并发多次审批、参数版本不一致、当前请求取消/已回答时，丢弃元数据并回退，不展示另一请求的内容。接口只服务当前会话的 pending 请求，限大小、短生命周期并设置 no-store；响应迟到不得覆盖新请求。
+### 1. 保留原生决定生命周期，适配两条前端通道
 
-展示失败回退官方卡片，但策略校验失败绝不能放行工具。元数据观察器异常仍委托官方审批；不读敏感文件来生成预览，权限不足就不读。日志只记状态、工具名、关联 ID、缺失原因，不记命令、理由、内容或凭据。
+统一外观为黄色条、原因与权限正文。原生 `PendingApproval` / `PendingQuestion`、`canAnswer`、重复提交保护、请求切换、取消和 answer 回调继续作为决定通道。
 
-WSL 场景下元数据必须在实际执行 Host 生成并沿现有桥接路由读取；先证明会话前缀及自定义路由能正确分流。不得用 Windows FS 去解析 Linux 路径，也不得把已有官方批准决定复制成另一端的新授权。无法路由时退回官方展示。
+工具审批沿用聊天 detail 接缝。CUA 不带 tool callId，不能伪造 callId 来复用这个接缝：为官方 `ApplicationApproval` 增加来源适配，从真实 question.id、intent、subject 和选项生成展示数据，通过同一原生卡片呈现。
 
-## 验收与实施顺序
+因此本版需要在插件生成的官方客户端副本中，为共享卡片增加受控的正文渲染接缝；保留官方 `ApprovalFlow` 的决定逻辑。这个改动也供 CUA 使用，不另造一个决定通道。CUA 生产者提供结构化 view，工具通道通过会话授权 RPC 读取 view；两者复用两行正文组件。所有副本从当前 Host 生成，匹配必须唯一，不修改官方安装文件。
 
-- L1：理由格式、未知工具、参数错误、权限来源、片段计数、replace_all、路径候选/realpath、凭据抑制、pending 失效。
-- L2：真实 tools→approval 顺序；修改前后参数不同、缺 callId、连续两次提权、并发会话、晚到响应、加载失败、never 策略、取消和拒绝。证明原来拒绝/不可批准的请求仍不能执行。
-- L3：rc.2 / rc.3，中英、深浅色、Windows / WSL；真实 shell 和 edit/write 审批；符号链接出工作区、新文件、未知脚本影响；展开/复制/滚动/输入法操作不得批准。检查 336px 正文上限及按钮可见。
+应用访问可能包含 provider 自带的风险说明、应用身份和额外授权选项。应用名进入权限行；关键风险以完整可读文字保留，不用两行外观掩盖它。主批准动作显示实际会话时长，存在“始终允许”时保留对应独立选项及其明确文案，不把它伪装为“仅本次”。正文两项可以自然换行。
 
-按「契约实验 → runtime 校验与只读快照 → UI 接入 → 双端真实验收」推进；未验证的能力明确记录，不把预览稿当作已实现功能。
+`approvalDetails` 原有设置 ID 保留。开关只控制呈现，不关闭校验。表格补丁独立。未知第三方、协议不匹配或运行时失败安全回退原生；已列入本版范围的官方类型，回退只能作为异常保护，不能算适配验收通过。
+
+正文普通 Enter 的处理限定于当前卡片；原生按钮键盘激活、Esc 和输入法保护单独验收。不使用全页面快捷键拦截器。
+
+### 2. 独立的工具适配层
+
+新增 `plugins/approval-contract.mjs`，容纳纯函数形式的原因校验、参数摘要及官方契约适配；`approval-info.mjs` 继续负责 Host 服务、钩子和内存生命周期。不要把所有规则塞进聊天 UI 或增加一套调度器。
+
+| 同版必交付适配器 | 原因来源 | 权限依据 | 本次不改变的行为 |
+| --- | --- | --- | --- |
+| bash / pwsh | 实际调用的 justification，标记 model | 最终参数、原生严格扩权判断及已核对的审批契约 | 命令、cwd、后台/超时参数由原工具执行 |
+| write / edit | 实际调用的 justification，标记 model | 同上，使用实际文件后端 | 不把完整访问说成单文件授权，不把版本同步当授权 |
+| plugin_manager | action/target 的确定性说明，标记 tool-adapter | 已核对的官方调用前完整访问检查 | 查询仍按官方要求审批；不自动安装/启用/允许构建脚本 |
+| run_code / PTC | transport 最终 justification，标记 model | 官方 PTC transport 的同次扩权请求；子调用独立判断 | 不重放程序，不把外层批准当成内层工具批准 |
+| 执行前策略 ask（含 Auto review） | 策略拥有的原因，标记 policy，结合已知工具结构化动作 | 该调用原有权限；不凭 ask 推定权限扩大 | 不新增模型必填参数，不把用户拒绝当成格式纠正 |
+| CUA 应用访问 | 官方 question/intent/应用身份，标记 tool-adapter | userQuestions 原有选项与 application-access 权限存储 | 会话授权与持久授权保持区别，不绕过撤销或风险告知 |
+| CUA 系统鼠标控制 | 官方 cua-mouse-control intent，标记 tool-adapter | 当前会话的系统指针授权 | 不授予应用访问权限，不绕过 delegated task 禁止操作 |
+
+`plugin_manager` 示例：`list_plugins` → “读取当前配置的插件列表”；安装/启用/删除等 → 说明具体对象和配置的持续影响。目标来自结构化参数，不能靠解析 JSON 审计字符串猜出动作。未知 action 不进入简化展示。
+
+现有管理工具的审计原因仍保留官方内容。本版提供单独的展示元数据，不冒充已经修改了官方审计记录，也不在事件观察器中改写已记录的 reason。
+
+不能只凭工具同名就适配任意第三方实现。核对运行 Host 版本、可见定义和已支持 schema/契约；不识别的定义保留原生。需要修改模型可见 schema 时，先验证当前作用域的官方注册契约，不盲目重名注册。本版可沿用已有字段描述并注入精确提示，无须为了改文案重装所有工具。
+
+### 3. 原因格式与原生兼容
+
+- 自然语言说明具体动作及申请原因，使用用户当前语言。提示词建议约 20–50 个汉字、单段且不超过 160 个 Unicode 字符，不把建议字数当最低或固定长度。
+- 160 字、单段和非占位/非 JSON 是启用简洁展示的条件，不是执行权限。格式不符合时不生成简化快照，显示当前请求的官方审批卡，保留原理由、权限和决定通道；不抛格式错误、不自动重试或自动批准。
+- 已处于所请求模式、不需要审批的调用，不应被本插件额外要求理由；空白、字段配对等基础合法性由原生工具检查，不能以回退绕过。
+- 明显凭据仍返回 `APPROVAL_REASON_INVALID`，错误不回显凭据。凭据检查优先于换行、代码块及长度判断，不能借格式回退展示密钥；已有 `secret-guard` / `secret-files` 继续生效。
+- 不维护按轮次锁死操作的格式纠正预算。连续不合格说明仍必须经过原生审批，后续合格说明无需用户另发消息即可恢复简洁展示。用户拒绝、取消、通道不可用继续按原生结果处理，不能诱导再次申请。
+- 不截断、不补写理由、不静默换命令；旧会话历史只读呈现，不重新校验或迁移历史工具参数。
+
+格式校验不等于语义真实性检测。权威权限由实际执行端和原生审批决定，不依赖模型理由是否诚实。
+
+### 4. 展示协议与执行绑定
+
+沿用经过 Connection/Typert 认证、session 资源授权的 `runtimeTuningApproval/read`。不增加独立 HTTP 服务。schema 升到 2，客户端只在匹配版本与请求实例时启用简化界面。
+
+```ts
+type ApprovalView = {
+  schemaVersion: 2;
+  channel: 'tool-approval' | 'cua-question';
+  snapshotId: string;
+  generation: number;
+  sessionId: string;
+  requestKey: string;
+  callId?: string;             // CUA 没有调用 ID，不伪造
+  reason: string;
+  reasonSource: 'model' | 'tool-adapter' | 'policy';
+  permission: {
+    kind: 'sandbox-escalation' | 'tool-confirmation'
+      | 'application-access' | 'mouse-control';
+    requestedMode?: 'workspace-write' | 'danger-full-access';
+    subjectName?: string;
+    lifetime: 'call' | 'session'; // 当前主动作，持久动作是独立 choice
+  };
+  choices: readonly {
+    id: string;
+    lifetime: 'none' | 'call' | 'session' | 'persistent';
+    label: string;
+  }[];
+};
+```
+
+DTO 只描述当前原生通道已有的选项，不创建可直接授权的新 RPC。CUA 的持久选项仅在原 provider 确实提供时存在；选择仍由原 PendingQuestion 按原始标识回答。工具通道仍由 PendingApproval 回答。不能将 CUA 的 question 伪装为工具 allowed-once。
+
+
+本版公开 DTO 去掉 UI 不再使用的完整 command/raw/edit 内容。内部仍持有受控的执行关联和参数摘要，原始调用继续由官方工具记录负责。摘要不作为长期授权令牌，不写入普通日志。
+
+在 `tools/execute` 保持 live execution 关联。只有官方工具真正进入 `approval/request` 后，才从当前执行参数和已核对适配器生成快照，避免使用最初 `argsRaw` 代替经过 timeout/path 适配后的参数。实际沙箱范围由执行端原生校验；不能从 displayReason 文案或脚本内容反推。
+
+快照内部绑定实际 agent、会话、callId、工具定义、请求代次、原生 signal 与参数摘要。等待原生决定后，若拟返回允许，先复核同一实例仍有效、参数未变，再将原生结果返回原调用；不自行制造 allowed-once。变化时终止本次操作，模型必须按新参数重新申请。若当前 Host 的边界不能保证该复核位于执行前，停止启用这项保证，保留原生而不能声称绑定已实现。
+
+不把现在的 `ApprovalSnapshots` 只读关联说成已经实现了执行授权校验。接入时需用有意在等待期间改参的集成测试验证复核是否有效。
+
+增加“已审批参数不可被后续插件改变”的约束前，需要明确兼容的改写阶段。已知 wait-guard/session-tmp 的合法改写先完成再取摘要，不能把它们当成攻击，也不能笼统忽略 timeout 或路径差异。未知的后续变更不得悄悄套用旧批准。
+
+### 5. 不跨越已有安全与停止边界
+
+- `secret-guard`、`secret-files`、官方 guards 的 deny 优先，不因用户同意而解除。
+- 官方 never 策略、审计 asked/decided、取消、缺失回答者的拒绝保持原样。
+- 审批等待不套用普通用户提问的 timed/pending 处理；超时只能取消/不可用，不能自动允许。
+- 审批不是后台任务完成；wait-guard 的唤醒逻辑不能重放已取消/已拒绝的调用。
+- 文件目标、策略与快照在实际执行 Host 产生。WSL 沿现有桥接路由读取，同一事件不能在另一端变成一次新的授权。
+- “仅本次调用”只限制本次授权，不能掩盖安装插件、修改配置等操作的持续影响。
+
+## 全类型接入细节
+
+### PTC：使用同一 pipeline，单独识别 transport
+
+rc.3 的 `PtcExecutor` 把根 `run_code` 和内层 SDK 调用送入 `ToolExecutionPipeline`；根 transport 由 executor 自己的 resolver 返回，不出现在 `ctx.tools.get()` 中。因此不重名注册 run_code，也不以普通 tools.get 缺失就判定不支持。
+
+在已有 pre-execute / execute / approval 生命周期关联中识别 pipeline 发出的 token、rootCallId、parent、实际参数及已核对 PTC 契约。根审批显示“本次程序执行”的实际模式；子调用用各自 token/callId 生成独立审批。相同父调用不能共用一个 pending grant。rc.2 与 rc.3 分别定位当前宿主的 transport，不硬编码同一目录布局。
+
+### 策略 ask：准备态与执行态分开
+
+pre-execute 入口登记 prepared execution，并保留到结果/取消/turn 清理；不能在 middleware 返回后立即删除，因为原 pipeline 随后才调用 serviceAsk。execute 入口将同一 token 更新为 dispatched execution。
+
+approval/request 到达时，根据实际阶段选择适配器：prepare 阶段确认的是该调用在现有权限下执行；工具本体的请求可能是另一次扩大权限。两次审批使用不同 request generation，不能因为 callId 相同就复用批准。
+
+prepare 批准后到工具本体之间仍会有 timeout 和临时路径规范化。为现有 wait-guard、session-tmp 及涉及批准对象的 fs-view 改写增加内存中的前后参数/规则来源记录，逐项核对它们是否保持同一被批准操作；不忽略整个字段，也不允许任意路径替换。无法证明保持同一操作的改变终止本次调用，按新操作重新申请。
+
+实施前必须通过实验验证“最后改写之后、真正工具副作用之前”的复核位置。不得通过自动返回允许来延后原生审批，不能只在工具已经执行完以后检查摘要。若公共接缝不足，使用插件持有的执行适配器提供该检查位置；不修改官方安装文件。这个分支未解决则本版不具备发布条件。
+
+### CUA：适配问题通道，不接管权限存储
+
+识别官方 `cua-app-access` / `cua-mouse-control` 与 `intent.kind === approval`，从结构化 intent 和原选项生成 view。继续使用官方 application-access/mouse-control 的会话权限存储、撤销版本检查、delegated caller 限制和客户端关闭检查。
+
+CUA 不经 tools 的 ApprovalService，不能指望只修改 approval/request observer 就覆盖它。通过生成的 CUA 客户端生产者适配和共享卡片正文接缝实现，不改 provider 的决定内容，不把普通 ask_user_question 当成审批，不套用 ask-nonblocking 的 timed 模式。系统原生权限弹窗继续由系统与原 provider 管理，不冒充已适配的两行工具审批。
+
+## 进行方法与单版完成条件
+
+开发可以按依赖顺序推进，但只有一个完整候选版本，不发布“只适配了已有 9 个样本”的半成品。
+
+1. **先做契约实验。** rc.2/rc.3 分别验证 prepare ask、根 PTC、PTC 子调用、CUA 问题通道、参数最终复核位置，以及客户端正文接缝。实验失败先解决接缝，不以长期原生回退标记完成。
+2. **实现统一协议及来源适配。** 所有上述官方类型一起纳入 DTO、理由来源、真实权限、授权时长与原生选择绑定。简洁格式校验只应用于模型可控制的理由；provider / policy 的关键说明不为长度限制而截断。
+3. **接入界面。** 工具与 CUA 共享正文组件，保留黄色条、原生决策状态和各自真实授权选项；未知第三方安全回退。
+4. **跑完整行为矩阵。** 每类都有允许、拒绝、取消、失效和并发测试，检查真实副作用；不能仅证明能弹框。
+5. **进行实机与升级验收。** 原生截图、真实 Desktop/WSL 路由、已有调用重放、旧 link 安装和预设/旧会话回归，全部通过后才形成可发布候选。
+
+预期代码拆分：`approval-contract.mjs`（纯协议与适配）、`approval-info.mjs`（Host 生命周期与执行复核）、现有参数改写模块的小型来源记录、共享正文组件及官方客户端副本生成器、CUA 生产者适配。保持现有插件 ID 和用户设置，不把业务会话样本加入源码包。
+
+不包含新造一套单文件授权执行器或按域网络防火墙；它们是新能力，不属于适配官方已有审批类别。本版仍必须准确显示现有实际权限，不能用“仅某文件”的文案伪装完整访问。
+
+## 验收门槛
+
+1. **兼容已有调用：** 已有真实参数在内存中离线重放，记录能否生成 DTO；历史调用只用于读取和校验，不执行其中命令。
+2. **拒绝能力不下降：** 同一官方策略、参数、用户决定下，原来 deny 的不能变 allow；never、凭据与敏感文件防护各自做执行结果检查。
+3. **参数改写：** 覆盖 timeout clamp、会话 tmp 映射、等待期间换参；批准不能用在新参数上，合法规范化不误伤。
+4. **生命周期：** 两个 session、同 callId 歧义、多个 pending、旧 snapshot、迟到响应、取消、连接断开、重复点击均不产生越权执行。
+5. **模型恢复：** 合法中英说明保留；格式不合格回退原生，连续失败不锁死后续合法请求；用户拒绝不诱导再次申请。检查工具名、schema 与旧会话绑定未破坏。
+6. **管理工具：** 查询、安装/移除、启停、版本豁免和持久构建授权分别验证。不能通过两行改造省掉官方要求的额外明确同意。
+7. **PTC 与策略：** 根程序批准不覆盖嵌套调用；相同 callId 顺序两次审批不能串用；prepare 期间批准后，合法规范化和非法改参分别验证；重试不会重放已有程序副作用。
+8. **CUA：** 应用访问/鼠标控制分别测会话允许、拒绝、取消、持久选项、撤销期间版本变化、delegated caller 与客户端关闭；两种权限不能互相替代。纯 provider fixture 和实际系统授权验收分别标注，不能冒充同一测试。
+9. **界面：** 实际 rc.2/rc.3 原生 Host 的深浅色/窄窗截图，黄色条保留，无权限盒子或详情按钮；警告、未知请求回退可见。截图检查后再做允许/拒绝的实际文件或进程结果检查。
+10. **桥接和升级：** 真实 Desktop/WSL 路由、元数据认证与授权、旧 link 安装升级、预设启用状态与旧会话继续均通过。隔离 Linux fakewsl 不能替代 Windows Desktop 验收。
+
+发布仍按仓库既有流程由所有者执行；实现、集成测试与实机验收必须分别记录，不能把 HTML 或会话重放计作已经上线。
+
+单版验收矩阵必须逐项记录 rc.2/rc.3 的支持/无此官方能力/未通过状态；只有宿主确实没有该能力时可以标 N/A，不能把“插件尚未实现”写成 N/A。

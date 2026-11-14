@@ -10,6 +10,7 @@
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { recordParameterRewrite } from './approval-contract.mjs'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-runtime-tuning-session-tmp'
@@ -134,9 +135,21 @@ export function apply(ctx, config = {}) {
       const sessionId = exec.agent?.session?.id
       if (c.fileTools && rebound && !missed && typeof sessionId === 'string' && modeOf(sessionId) === 'workspace-write') {
         dir = dirFor(sessionId)
-        const mapped = mapToolArgs(exec.name, exec.arguments, dir)
+        const before = exec.arguments
+        const mapped = mapToolArgs(exec.name, before, dir)
         if (mapped === undefined) dir = undefined
-        else { exec.arguments = mapped; record({ event: 'mapped', tool: exec.name, session: sessionId }) }
+        else {
+          exec.arguments = mapped
+          const fields = Object.keys(mapped).filter((key) => before?.[key] !== mapped[key])
+          recordParameterRewrite(exec, {
+            source: 'session-tmp',
+            fields,
+            before: before ?? {},
+            after: mapped,
+            meta: { dir },
+          })
+          record({ event: 'mapped', tool: exec.name, session: sessionId })
+        }
       }
     } catch (error) {
       dir = undefined

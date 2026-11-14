@@ -27,6 +27,7 @@
 // rev 6 命令自带 timeout N（超过 maxForegroundTimeoutMs）却放前台、又没给 timeoutMs：设成上限，到点转后台，不等 DSH 默认的 60 秒。
 // 封顶依赖“到点转后台”；如果被封顶的命令到点被杀（promoteOnTimeout 关掉了），就停用封顶。
 import { randomUUID } from 'node:crypto'
+import { recordParameterRewrite } from './approval-contract.mjs'
 import { chatFixActive, prepareChatFix } from './chat-answer-fix.mjs'
 import { createRecorder } from './log.mjs'
 
@@ -443,9 +444,18 @@ export function apply(ctx, config = {}) {
   ctx.on('tools/execute', async (exec, next) => {
     let patch
     try {
+      const before = exec.arguments
       patch = clampOff ? undefined : rewrite(exec, c)
       if (patch !== undefined) {
         exec.arguments = patch.arguments
+        const fields = Object.keys(patch.arguments ?? {}).filter((key) => before?.[key] !== patch.arguments[key])
+        recordParameterRewrite(exec, {
+          source: 'wait-guard',
+          fields,
+          before: before ?? {},
+          after: patch.arguments ?? {},
+          meta: { rule: patch.rule },
+        })
         if (typeof exec.deferContext === 'function') exec.deferContext(contextMessage(patch.context, `clamped ${patch.rule}`))
         record({ event: 'clamped', rule: patch.rule, tool: exec.name, fromSeconds: patch.fromSeconds, toSeconds: patch.toSeconds, session: exec.agent?.session?.id })
       }

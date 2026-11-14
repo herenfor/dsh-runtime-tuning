@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { copyFileSync, mkdirSync, openSync, readSync, closeSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, extname, isAbsolute, join } from 'node:path'
+import { recordParameterRewrite } from './approval-contract.mjs'
 import { createRecorder } from './log.mjs'
 import { replaceInStrings } from './session-tmp.mjs'
 
@@ -32,10 +33,12 @@ export function syncedEditIntent(stat, onSync) {
       intent = await next()
     } catch (error) {
       if (error?.code !== 'FS_NOT_OBSERVED') throw error
+      recordParameterRewrite(exec, { source: 'fs-view', fields: ['edit-intent'], before: { observed: false }, after: { version: info.version }, meta: { kind: 'unread' } })
       onSync('unread', exec)
       return { version: info.version }
     }
     if (intent?.version !== undefined && intent.version !== info.version) {
+      recordParameterRewrite(exec, { source: 'fs-view', fields: ['edit-intent'], before: { version: intent.version }, after: { version: info.version }, meta: { kind: 'stale' } })
       onSync('stale', exec)
       return { ...intent, version: info.version }
     }
@@ -85,7 +88,10 @@ export function apply(ctx, config) {
         copy = join(dir, basename(path, extname(path)) + PREFERRED[actual])
         copyFileSync(path, copy)
         original = path
-        exec.arguments = { ...exec.arguments, file_path: copy }
+        const before = exec.arguments
+        const after = { ...exec.arguments, file_path: copy }
+        exec.arguments = after
+        recordParameterRewrite(exec, { source: 'fs-view', fields: ['read-image-copy'], before: { file_path: before?.file_path }, after: { file_path: copy }, meta: { from: original, to: copy, actual } })
         record({ event: 'image-retyped', from: extname(path).toLowerCase(), to: actual, session: exec.agent?.session?.id })
       }
     } catch (error) {

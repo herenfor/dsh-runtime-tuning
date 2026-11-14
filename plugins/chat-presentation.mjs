@@ -17,21 +17,108 @@ export const TABLE_CSS = `
 [data-runtime-tuning-tables] [class*="tableScroll"][data-tune-overflow] {
  border-right:2px solid var(--dsw-alias-label-tertiary,#888);
 }
-.tune-approval {display:flex;flex-direction:column;gap:9px;line-height:20px;font-size:13px;font-family:var(--dsw-font-family);color:var(--dsw-alias-label-primary);word-break:normal;overflow-wrap:anywhere}
-.tune-approval .tune-label {font-size:12px;color:var(--dsw-alias-label-secondary);line-height:18px}
-.tune-approval .tune-purpose {font-size:15px;line-height:24px;font-weight:500;color:var(--dsw-alias-label-primary)}
-.tune-approval .tune-permission {font-size:14px;line-height:22px;font-weight:500}
-.tune-approval p {margin:0}
-.tune-approval .tune-note {color:var(--dsw-alias-label-secondary)}
-.tune-approval .tune-file {padding:7px 10px;background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08));border-radius:8px}
-.tune-approval button {align-self:flex-start;font:inherit;color:inherit;background:transparent;border:1px solid var(--dsw-alias-divider-primary,rgba(128,128,128,.25));border-radius:8px;padding:4px 9px;cursor:pointer}
-.tune-approval button:focus-visible {outline:2px solid var(--dsw-alias-label-link,#5885df)}
-.tune-approval .tune-buttons {display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.tune-approval pre {margin:4px 0 0;padding:8px 10px;font-size:12px;line-height:19px;white-space:pre;overflow:auto;max-height:180px;max-width:100%;background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.08));border-radius:8px}
-.tune-approval .tune-remove {color:var(--dsw-alias-status-error-label,#be4b45)}
-.tune-approval .tune-add {color:var(--dsw-alias-status-success-label,#29804b)}
-[data-approval-scroll]:has(.tune-approval[data-tune-ready]) > :is([class*="heading_"],[class*="headline_"],[class$="_heading"],[class$="_headline"]):not(:has(button)) {display:none}
+.tune-approval-2line [data-approval-key] [data-approval-scroll] {
+ min-width:0;max-width:100%;overflow-x:hidden;overflow-y:auto;white-space:normal;overflow-wrap:anywhere;word-break:normal;
+}
+.tune-approval-2line [data-approval-key] [data-approval-scroll] * {
+ min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;word-break:normal;
+}
+.tune-approval-2line [data-approval-key] [data-approval-scroll] > :first-child {
+ display:flex;flex-wrap:wrap;align-items:baseline;
+}
+.tune-approval-2line [data-approval-key] [data-approval-scroll] > :first-child > :first-child {
+ flex:0 1 auto;min-width:0;max-width:100%;
+}
+.tune-approval-2line [data-approval-key] [data-approval-scroll] button {
+ flex-shrink:0;white-space:nowrap;
+}
 `
+
+/**
+ * Determine active locale bucket (`'zh'` or `'en'`).
+ * Embedded identically into browser generated bundles and shared by Host contracts.
+ * @param {string | undefined} locale - BCP-47 locale string.
+ * @returns {'zh' | 'en'}
+ */
+export function resolveLocaleFamily(locale) {
+  if (typeof locale === 'string' && locale.toLowerCase().startsWith('zh')) return 'zh'
+  return 'en'
+}
+
+/**
+ * Format Line 2 plain-text permission description from a schema v2 `ApprovalView`.
+ * Shared verbatim between Node approval contracts and the browser composer slot.
+ * @param {object} view - Schema v2 `ApprovalView`.
+ * @param {string | undefined} locale - UI locale string.
+ * @returns {string} Plain single-paragraph permission summary.
+ */
+export function formatApprovalPermissionText(view, locale) {
+  const fam = resolveLocaleFamily(locale)
+  const perm = view?.permission
+  if (!perm) return fam === 'zh' ? '请求执行授权' : 'Permission requested'
+  const subject = typeof perm.subjectName === 'string' && perm.subjectName.trim() ? perm.subjectName.trim() : undefined
+  const hasAlways = Array.isArray(view?.choices) && view.choices.some((c) => c.lifetime === 'persistent')
+
+  if (perm.kind === 'sandbox-escalation') {
+    const modeLabel = perm.requestedMode === 'danger-full-access'
+      ? (fam === 'zh' ? '完全访问权限' : 'full access')
+      : (fam === 'zh' ? '工作区写入权限' : 'workspace write access')
+    if (fam === 'zh') {
+      return `申请${modeLabel}（仅本次调用${subject ? ` · ${subject}` : ''}）`
+    }
+    return `Request ${modeLabel} for this call only${subject ? ` (${subject})` : ''}`
+  }
+
+  if (perm.kind === 'tool-confirmation') {
+    if (fam === 'zh') {
+      return `需要确认执行（仅本次调用${subject ? ` · ${subject}` : ''}）`
+    }
+    return `Confirmation required for this call only${subject ? ` (${subject})` : ''}`
+  }
+
+  if (perm.kind === 'application-access') {
+    if (fam === 'zh') {
+      return `申请在本会话控制应用${subject ? `「${subject}」` : ''}${hasAlways ? '（可选择始终允许）' : ''}`
+    }
+    return `Control ${subject ?? 'this application'} for this session${hasAlways ? ' (or choose Always allow)' : ''}`
+  }
+
+  if (perm.kind === 'mouse-control') {
+    if (fam === 'zh') {
+      return '控制鼠标指针：允许后立即移动 · 记住到关闭会话或重启 DSH'
+    }
+    return 'Control mouse pointer: moves immediately on allow · until closing session or restarting DSH'
+  }
+
+  return fam === 'zh' ? '申请执行权限' : 'Permission requested'
+}
+
+/**
+ * Match both tool-approval waterfalls (`kind === 'approval'`) and CUA
+ * approval questions (`cua-app-access` / `cua-mouse-control`) in the
+ * ascending-priority `conversation.composer` chain slot.
+ * Non-approval questions (`ask_user_question`, `plan-review`) return null.
+ */
+export function selectTuningComposer({ pendingInteraction } = {}) {
+  if (!pendingInteraction || typeof pendingInteraction !== 'object') return null
+  if (pendingInteraction.kind === 'approval') {
+    return { channel: 'tool-approval', pending: pendingInteraction }
+  }
+  if (
+    pendingInteraction.kind === 'question'
+    && Array.isArray(pendingInteraction.questions)
+    && pendingInteraction.questions.length === 1
+  ) {
+    const item = pendingInteraction.questions[0]
+    if (
+      (item?.id === 'cua-app-access' || item?.id === 'cua-mouse-control')
+      && item?.intent?.kind === 'approval'
+    ) {
+      return { channel: 'cua-question', pending: pendingInteraction, item, intent: item.intent }
+    }
+  }
+  return null
+}
 
 // No global tables: only the real assistant Markdown body identified at its render seam.
 export function installPresentation(ctx, css, options = {}) {
@@ -47,7 +134,7 @@ export function installPresentation(ctx, css, options = {}) {
     refresh()
     const unsubscribe = settings.subscribe(() => { refresh(); scan() })
     const clean = new Map()
-    const resize = new ResizeObserver(entries => entries.forEach(({ target }) => measure(target)))
+    const resize = new ResizeObserver((entries) => entries.forEach(({ target }) => measure(target)))
     function restore(node, state) {
       node.removeAttribute('data-tune-overflow')
       if (state.tabAdded) { node.removeAttribute('tabindex'); state.tabAdded = false }
@@ -82,65 +169,222 @@ export function installPresentation(ctx, css, options = {}) {
 }
 
 // React component factory; ctx supplies the existing session and Connection carriers.
-export function approvalComponent(ctx, React) {
-  const { createElement: h, useState, useEffect, useSyncExternalStore } = React
-  return function TuningApproval({ callId, sessionId, useChat }) {
-    const original = useChat(snapshot => {
-      for (const node of snapshot.nodes.values()) {
-        const r = node.kind === 'tool-call' ? node.data.root : undefined
-        if (r?.callId === callId && !('kind' in r) && r.phase === 'start') {
-          try { const a = JSON.parse(r.argsRaw); const value = r.name === 'terminal_send' ? a.text : a.command; return typeof value === 'string' ? value : undefined } catch { return undefined }
-        }
-      }
-    })
-    const [snapshot, setSnapshot] = useState(null)
-    const [expanded, setExpanded] = useState(false)
-    const [details, setDetails] = useState(false)
-    const [copied, setCopied] = useState(false)
-    const form = ctx.configForms.get('runtime-tuning-ui-chat')
-    const settings = useSyncExternalStore(f => form.subscribe(f), () => form.getSnapshot())
-    const enabled = settings.value?.approvalDetails !== false
-    const locale = useSyncExternalStore(f => ctx.locale.subscribe(f), () => ctx.locale.getSnapshot()).active
-    const zh = String(locale).startsWith('zh')
-    const t = (a, b) => zh ? a : b
+export function approvalComposerComponent(ctx, React) {
+  const { createElement: h, useEffect, useRef, useState, useSyncExternalStore } = React
+  const noopSubscribe = () => () => {}
+  // Fallback identity for Pending objects that lack a unique .key (e.g. legacy forms or test doubles).
+  const pendingRefIds = new WeakMap()
+  let nextPendingRefId = 1
+  const getPendingRefId = (pending) => {
+    if (!pending || typeof pending !== 'object') return `prim:${String(pending ?? '')}`
+    let id = pendingRefIds.get(pending)
+    if (id === undefined) {
+      id = `ref:${nextPendingRefId++}`
+      pendingRefIds.set(pending, id)
+    }
+    return id
+  }
+  const isSnapshotCompatible = (value, expected) => {
+    if (!value || value.schemaVersion !== 2) return false
+    if (value.channel !== expected.channel || value.sessionId !== expected.sessionId) return false
+    if (typeof value.reason !== 'string' || !value.reason.trim()) return false
+    if (!value.permission || typeof value.permission.kind !== 'string') return false
+    if (expected.channel === 'tool-approval') {
+      if (value.callId !== expected.callId) return false
+    } else if (expected.channel === 'cua-question') {
+      if (value.callId !== undefined) return false
+      const expectedKind = expected.cuaId === 'cua-app-access' ? 'application-access' : 'mouse-control'
+      if (value.permission.kind !== expectedKind) return false
+      if (expected.subjectName !== undefined && value.permission.subjectName !== expected.subjectName) return false
+    }
+    if (expected.expectedSnapshotId !== undefined && value.snapshotId !== expected.expectedSnapshotId) return false
+    return true
+  }
+
+  return function TuningApprovalComposer(props) {
+    const { matched, renderFactorySlot } = props
+    const channel = matched.channel
+    const pending = matched.pending
+    const sessionId = props.sessionId ?? pending.sessionId
+    const callId = channel === 'tool-approval' ? pending.callId : undefined
+    const cuaId = channel === 'cua-question' ? matched.item?.id : undefined
+    const subjectName = channel === 'cua-question' ? matched.intent?.subject?.name : undefined
+    const toolName = channel === 'tool-approval' ? pending.toolName : undefined
+    const rawKey = pending?.key
+    const requestKey = (typeof rawKey === 'string' && rawKey.length > 0)
+      ? rawKey
+      : (typeof rawKey === 'number' ? String(rawKey) : getPendingRefId(pending))
+
+    const form = ctx.configForms?.get?.('runtime-tuning-ui-chat')
+    const settings = useSyncExternalStore(
+      (f) => (form ? form.subscribe(f) : noopSubscribe()),
+      () => (form ? form.getSnapshot() : { value: { approvalDetails: true } }),
+    )
+    const enabled = settings?.value?.approvalDetails !== false
+
+    const localeSnap = useSyncExternalStore(
+      (f) => (ctx.locale?.subscribe ? ctx.locale.subscribe(f) : noopSubscribe()),
+      () => (ctx.locale?.getSnapshot ? ctx.locale.getSnapshot() : { active: 'en' }),
+    )
+    const locale = String(localeSnap?.active ?? 'en')
+
+    const keySig = `${requestKey}|${channel}|${sessionId ?? ''}|${callId ?? ''}|${cuaId ?? ''}|${subjectName ?? ''}|${toolName ?? ''}|${enabled}`
+    const prevKeySig = useRef(keySig)
+    const lockedSnapshotId = useRef(undefined)
+    const effectSeqRef = useRef(0)
+    if (prevKeySig.current !== keySig) {
+      prevKeySig.current = keySig
+      lockedSnapshotId.current = undefined
+    }
+
+    const [boundSnapshot, setBoundSnapshot] = useState(null)
+    // Verify synchronously during render so key changes never flash or mix an old request's text with new actions.
+    const activeSnapshot =
+      enabled &&
+      boundSnapshot &&
+      boundSnapshot.keySig === keySig &&
+      isSnapshotCompatible(boundSnapshot.value, {
+        channel,
+        sessionId,
+        callId,
+        cuaId,
+        subjectName,
+        expectedSnapshotId: lockedSnapshotId.current,
+      })
+        ? boundSnapshot.value
+        : null
+
     useEffect(() => {
-      setSnapshot(null); setExpanded(false); setDetails(false)
+      let active = true
+      let timer
       const controller = new AbortController()
-      let active = true, timer, snapshotId
-      // Read through Connection, so Desktop IPC and web use the same authenticated channel.
+      const effectKeySig = keySig
+      const effectSeq = ++effectSeqRef.current
+      const expected = { channel, sessionId, callId, cuaId, subjectName }
+
+      if (!enabled || !sessionId || (callId === undefined && cuaId === undefined)) {
+        setBoundSnapshot((prev) => (prev && prev.keySig !== effectKeySig ? prev : null))
+        return () => { active = false; controller.abort() }
+      }
+      setBoundSnapshot((prev) => (prev && prev.keySig === effectKeySig ? prev : null))
+
       const read = async () => {
         try {
-          const r = await ctx.get('connection').rpc.call('/api', 'runtimeTuningApproval/read', { args: { request: { sessionId, callId, ...(snapshotId ? { snapshotId } : {}) } } }, controller.signal)
-          if (active) {
-            if (r.ok && r.value?.schemaVersion === 1 && r.value.sessionId === sessionId && r.value.callId === callId) { snapshotId ??= r.value.snapshotId; setSnapshot(r.value) }
-            else { setSnapshot(null); if (!r.ok) active = false }
+          const rpc = ctx.get?.('connection')?.rpc
+          if (!rpc) {
+            if (active && effectSeq === effectSeqRef.current && prevKeySig.current === effectKeySig) {
+              setBoundSnapshot((prev) => (prev && prev.keySig !== effectKeySig ? prev : null))
+            }
+            return
           }
-        } catch { if (active) setSnapshot(null) }
-        if (active) timer = setTimeout(read, 1000)
+          const req = {
+            sessionId,
+            channel,
+            ...(callId !== undefined ? { callId } : {}),
+            ...(cuaId !== undefined ? { cuaId } : {}),
+            ...(subjectName !== undefined ? { subjectName } : {}),
+            ...(lockedSnapshotId.current !== undefined ? { snapshotId: lockedSnapshotId.current } : {}),
+            ...(locale ? { locale } : {}),
+          }
+          const r = await rpc.call('/api', 'runtimeTuningApproval/read', { args: { request: req } }, controller.signal)
+          if (!active || controller.signal.aborted || effectSeq !== effectSeqRef.current || prevKeySig.current !== effectKeySig) return
+          if (r?.ok && isSnapshotCompatible(r.value, { ...expected, expectedSnapshotId: lockedSnapshotId.current })) {
+            lockedSnapshotId.current ??= r.value.snapshotId
+            setBoundSnapshot((prev) => {
+              if (effectSeq !== effectSeqRef.current || prevKeySig.current !== effectKeySig) return prev
+              if (prev?.keySig === effectKeySig && typeof prev.value?.generation === 'number' && typeof r.value.generation === 'number' && r.value.generation < prev.value.generation) {
+                return prev
+              }
+              return { keySig: effectKeySig, value: r.value }
+            })
+          } else {
+            setBoundSnapshot((prev) => (prev && prev.keySig !== effectKeySig ? prev : null))
+            if (r && !r.ok) active = false
+          }
+        } catch {
+          if (active && effectSeq === effectSeqRef.current && prevKeySig.current === effectKeySig) {
+            setBoundSnapshot((prev) => (prev && prev.keySig !== effectKeySig ? prev : null))
+          }
+        }
+        if (active && !controller.signal.aborted && effectSeq === effectSeqRef.current && prevKeySig.current === effectKeySig) {
+          timer = setTimeout(read, 1000)
+        }
       }
-      if (enabled && sessionId && callId) void read()
+
+      void read()
       return () => { active = false; clearTimeout(timer); controller.abort() }
-    }, [callId, sessionId, enabled])
-    // Metadata is meaningful only in the matching live native request's detail seat.
-    if (!snapshot || !enabled) return original ?? null
-    const s = snapshot
-    const label = text => h('div', { className: 'tune-label' }, text)
-    const section = (title, content) => h('div', null, label(title), content)
-    const button = (text, click) => h('button', { type: 'button', onClick: e => { e.stopPropagation(); click() } }, text)
-    const permission = s.requestedMode === 'danger-full-access' ? t('申请完整访问权限', 'Request full access') : s.requestedMode === 'workspace-write' ? t('申请工作区写入权限', 'Request workspace write access') : t('权限范围未核实', 'Permission scope unverified')
-    const scope = s.requestedMode === 'danger-full-access' ? t('仅本次调用；不限于所列文件', 'This call only; access is not limited to listed files') : s.requestedMode === 'workspace-write' ? t('仅本次调用；工作区范围由宿主策略决定', 'This call only; workspace scope is defined by the host policy') : t('以原生审批请求为准', 'Refer to the native approval request')
-    return h('div', { className: 'tune-approval', 'data-tune-ready': s.snapshotId, 'data-tune-generation': s.generation },
-      section(t('请求目的', 'Request purpose'), h('div', { className: 'tune-purpose' }, s.purpose || t('调用未提供具体目的', 'No specific purpose provided'))),
-      section(t('本次权限 · 工具参数', 'Requested permission · tool arguments'), h(React.Fragment, null, h('div', { className: 'tune-permission' }, permission), h('p', { className: 'tune-note' }, scope))),
-      s.filePath ? section(t('涉及对象 · 文件参数', 'Target · file argument'), h('div', { className: 'tune-file' }, s.filePath, h('div', { className: 'tune-note' }, t('真实边界未核实', 'Real path boundary unverified')))) : null,
-      section(s.edit ? (s.replaceAll ? t('替换片段 · 所有匹配项', 'Replacement fragment · all matches') : t('替换片段', 'Replacement fragment')) : t('原始调用', 'Original call'), h(React.Fragment, null,
-        s.edit ? h('pre', null, h('span', { className: 'tune-remove' }, '- ' + s.edit.before), '\n', h('span', { className: 'tune-add' }, '+ ' + s.edit.after)) : null,
-        h('div', { className: 'tune-buttons' }, h('span', null, s.toolName, s.command ? ` · ${s.command.split('\n').length} ${t('行', 'lines')}` : ''),
-          button(expanded ? t('收起', 'Collapse') : t('查看', 'Expand'), () => setExpanded(v => !v)),
-          button(copied ? t('已复制', 'Copied') : t('复制', 'Copy'), () => { navigator.clipboard?.writeText(s.command ?? s.raw).then(() => setCopied(true)).catch(() => setCopied(false)) })),
-        expanded ? h('pre', null, s.command ?? s.raw) : null)),
-      button(details ? t('收起目录与调用详情', 'Hide directory and call details') : t('目录与调用详情', 'Directory and call details'), () => setDetails(v => !v)),
-      details ? h('pre', null, JSON.stringify({ tool: s.toolName, directoryArgument: s.workdir ?? null, directoryStatus: s.workdir ? 'tool argument; not a resolved realpath' : 'unknown before tool resolves its cwd', capturePhase: s.capturePhase, arguments: JSON.parse(s.raw) }, null, 2)) : null)
+    }, [keySig, locale])
+
+    const resolveText = (text) => (ctx.locale?.resolveText ? ctx.locale.resolveText(text) : (text?.en ?? ''))
+    const translate = (ns, key, params) => (ctx.locale?.translate ? ctx.locale.translate(ns, key, params) : key)
+
+    let nativeCardProps
+    if (channel === 'tool-approval') {
+      const approval = pending
+      const nativeTitle = (approval.displayReason === undefined ? approval.reason : resolveText(approval.displayReason))
+        ?? translate('approval', 'escalation', { toolName: approval.toolName })
+      nativeCardProps = {
+        requestKey: approval.key,
+        title: nativeTitle,
+        ...(approval.callId === undefined ? {} : { callId: approval.callId }),
+        canAnswer: () => approval.answerable,
+        onAllow: () => approval.answer('allowed-once'),
+        onReject: () => approval.answer('rejected'),
+      }
+    } else {
+      const { item, intent } = matched
+      const warning = item.id === 'cua-app-access'
+        ? {
+          label: translate('cuaPermissions', 'approvalRisks'),
+          title: translate('cuaPermissions', 'approvalRiskTitle'),
+          detail: translate('cuaPermissions', 'approvalRiskNotice'),
+        }
+        : undefined
+      const answerCua = (label) => pending.answer({ answers: [{ id: item.id, selected: [label] }] })
+      nativeCardProps = {
+        requestKey: pending.key,
+        ...(warning ? { warning } : {}),
+        title: intent.display === undefined ? item.question : resolveText(intent.display.question),
+        ...(item.detail === undefined ? {} : {
+          description: intent.display?.detail === undefined ? item.detail : resolveText(intent.display.detail),
+        }),
+        ...(intent.subject === undefined ? {} : { subject: intent.subject }),
+        allowLabel: intent.display?.approve === undefined ? intent.approve : resolveText(intent.display.approve),
+        canAnswer: () => pending.snapshot().channel !== 'none' && !pending.snapshot().closed,
+        onAllow: () => answerCua(intent.approve),
+        onReject: () => answerCua(intent.reject),
+        ...(intent.always === undefined ? {} : { onAlways: () => answerCua(intent.always) }),
+      }
+    }
+
+    if (typeof renderFactorySlot !== 'function') return null
+
+    if (!activeSnapshot) {
+      return renderFactorySlot('conversation.approval.card', nativeCardProps)
+    }
+
+    const twoLineProps = {
+      requestKey: nativeCardProps.requestKey,
+      ...(nativeCardProps.warning ? { warning: nativeCardProps.warning } : {}),
+      title: activeSnapshot.reason,
+      description: formatApprovalPermissionText(activeSnapshot, locale),
+      // Deliberately omit callId & subject so card body stays strictly 2 plain-text lines
+      // while native strip, border, warning popover, buttons, and keyboard shortcuts stay intact.
+      ...(nativeCardProps.allowLabel !== undefined ? { allowLabel: nativeCardProps.allowLabel } : {}),
+      canAnswer: nativeCardProps.canAnswer,
+      onAllow: nativeCardProps.onAllow,
+      onReject: nativeCardProps.onReject,
+      ...(nativeCardProps.onAlways !== undefined ? { onAlways: nativeCardProps.onAlways } : {}),
+    }
+
+    return h('div', {
+      className: 'tune-approval-2line',
+      'data-tune-ready': activeSnapshot.snapshotId,
+      'data-tune-generation': String(activeSnapshot.generation),
+      'data-tune-channel': activeSnapshot.channel,
+      'data-tune-reason-source': activeSnapshot.reasonSource,
+      style: { display: 'contents' },
+    }, renderFactorySlot('conversation.approval.card', twoLineProps))
   }
 }
 
@@ -152,12 +396,26 @@ export function patchPresentation(source) {
   }
   const body = /className:AssistantMarkdown_module_css_default\.body,children:/
   const table = replace(source, body, 'className:AssistantMarkdown_module_css_default.body,"data-runtime-tuning-tables":"",children:')
-  // Exact official ApprovalCommand registration, not the core ApprovalCard.
-  const detail = /ctx\.slots\.register\(\{name:([`"'])conversation\.approval\.detail\1\},ApprovalCommand\)/
-  const approval = replace(table.text, detail, 'ctx.slots.register({name:$1conversation.approval.detail$1,inject:sessionId=>({sessionId})},__tuneApprovalComponent(ctx,react))')
+
+  // Preserve official ApprovalCommand detail registration AND mount unified conversation.composer at priority -10.
+  const fullDetail = /ctx\.slots\.inject\((["'`])conversation\.approval\.detail\1,\(\)=>ctx\.slots\.register\(\{name:\1conversation\.approval\.detail\1\},ApprovalCommand\)\)/
+  const minDetail = /ctx\.slots\.register\(\{name:(["'`])conversation\.approval\.detail\1\},ApprovalCommand\)/
+  const composerReg = 'ctx.slots.inject($1conversation.composer$1,()=>ctx.slots.register({name:$1conversation.composer$1,priority:-10,select:__tuneSelectComposer,inject:sessionId=>({sessionId})},__tuneApprovalComposer(ctx,react)))'
+  let approval = replace(table.text, fullDetail, '$&;' + composerReg)
+  if (!approval.done && [...table.text.matchAll(new RegExp(fullDetail.source, 'g'))].length === 0) {
+    approval = replace(table.text, minDetail, '$&;' + composerReg)
+  }
+
   const apply = /function apply\(ctx\)\{/
-  const code = `${installPresentation.toString()}\nconst __tuneApprovalComponent=${approvalComponent.toString()};\n`
-  const wired = replace(approval.text, apply, code + 'function apply(ctx){installPresentation(ctx,' + JSON.stringify(TABLE_CSS) + ',{tables:' + table.done + '});')
-  // Without a unique install seam nothing changes, including detail registration.
+  const helpers = [
+    resolveLocaleFamily.toString(),
+    formatApprovalPermissionText.toString(),
+    selectTuningComposer.toString(),
+    installPresentation.toString(),
+    `const __tuneSelectComposer=${selectTuningComposer.name};`,
+    `const __tuneApprovalComposer=${approvalComposerComponent.toString()};`,
+  ].join('\n') + '\n'
+  const wired = replace(approval.text, apply, helpers + 'function apply(ctx){installPresentation(ctx,' + JSON.stringify(TABLE_CSS) + ',{tables:' + table.done + '});')
+  // Without a unique install seam nothing changes, including approval composer registration.
   return wired.done ? { text: wired.text, tables: table.done, approval: approval.done } : { text: source, tables: false, approval: false }
 }
