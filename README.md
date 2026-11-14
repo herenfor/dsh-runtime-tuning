@@ -37,7 +37,7 @@ DeepSeek Harness 的运行调优插件 · npm 包名 `@herenfor/dsh-tune`
 
 适用于 DSH `0.2.2-rc.1` 及之后的 `0.2.x` 版本；Node.js 版本需满足所用 DSH 的要求。当前面向有人使用的交互界面，`headless`、`sdk` profile 暂不支持。
 
-**版本先看这里：** 本页审批截图与验证基于 `0.2.15-dev.7`；稳定版与预发布版可能不同。安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions) 核对，预发布使用 `next` 标签。
+**版本说明：** 本页介绍 `0.2.17` 的审批改造，截图来自该实现的发布前真实会话。安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions) 确认版本已发布；源码安装见下方说明。
 
 **在插件页安装**
 
@@ -53,11 +53,11 @@ DeepSeek Harness 的运行调优插件 · npm 包名 `@herenfor/dsh-tune`
 dsh plugin --profile web add @herenfor/dsh-tune
 ```
 
-上面的命令安装稳定版；候选发布到 npm 后，可将包名换成 `@herenfor/dsh-tune@next`。`web` 是 CLI profile；Desktop 和 WSL 桥接端请在各自的插件页操作。本地源码安装见[安装说明](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#安装)。
+上面的命令安装 npm 稳定版；`0.2.17` 正式发布使用 `latest` 标签。`web` 是 CLI profile；Desktop 和 WSL 桥接端请在各自的插件页操作。本地源码安装见[安装说明](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#安装)。
 
 安装后等当前任务结束，重启 DSH 并刷新页面。
 
-> **已装过旧版？** 旧包名的 `link:` 安装可继续使用，dev.6 起已兼容其内部模块定位；无需为了恢复调优预设重装或改配置。若要迁移到 npm 入口，待任务空闲后备份配置、移除旧包再安装新包，避免重复加载。内部插件 ID、日志目录和原有配置覆盖保持不变。[迁移与安装说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#安装)
+> **已装过旧版？** 旧包名的 `link:` 安装可继续使用，新版已兼容其内部模块定位；无需为了恢复调优预设重装或改配置。若要迁移到 npm 入口，待任务空闲后备份配置、移除旧包再安装新包，避免重复加载。内部插件 ID、日志目录和原有配置覆盖保持不变。[迁移与安装说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#安装)
 
 ## 功能一览
 
@@ -97,7 +97,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 效果与验证
 
-当前候选 **0.2.15-dev.7** 的验证范围：
+**0.2.17** 所含实现的验证范围：
 
 | 验证 | 结果 |
 | --- | --- |

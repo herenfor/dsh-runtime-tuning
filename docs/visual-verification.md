@@ -1,6 +1,6 @@
 # 审批卡与聊天表格的验收范围
 
-当前候选：`@herenfor/dsh-tune@0.2.15-dev.7`，未发布 npm。本轮围绕 schema v2 两行纯文本审批卡与 6 条审批通道重构完成测试与验收，并保留 rc.2 / rc.3 旧版本升级回归（旧预设可用、旧会话继续、新调优会话运行，安装清单及预设启用配置保持不变）。
+目标发布版本：`@herenfor/dsh-tune@0.2.17`。下述记录来自该审批实现的发布前验证，发布命令由所有者执行。本轮围绕 schema v2 两行纯文本审批卡与 6 条审批通道重构完成测试与验收，并保留 rc.2 / rc.3 旧版本升级回归（旧预设可用、旧会话继续、新调优会话运行，安装清单及预设启用配置保持不变）。
 
 ## 实际运行方式
 
@@ -11,7 +11,7 @@
 | Linux / WSL 内 DSH 0.2.2-rc.3 | 6 条审批通道、两行纯文本卡渲染与换行、key/focus/IME 守卫、异步快照防串卡、重载后防篡改、官方工具来源校验、根 `run_code`（`PtcExecutor`）格式回退与官方执行兼容对照、CUA warning 弹窗、`approvalDetails` / `tableLayout` 开关、深浅色与 `375×812` / `1280×900` 截图及升级回归 | E2E 工具由测试驱动触发、CUA 由 Web 侧模拟 stub 驱动、`plugin_manager` 因上游 `rc.3` 缺少 `approval` 注入而在 E2E 中以带 `approval` 注入的官方契约测试桩触发真实 `approveEscalation`；未接生产 LLM，也未实测 Windows/macOS 原生桌面 CUA |
 | Linux / WSL 内 DSH 0.2.2-rc.2 | 原生旧预设升级回归；`Cordis`/`ToolsService`/`NativeToolExecutor`/`PtcExecutor` 宿主集成回归；两段相同普通归档任务的真实审批与产物核对 | 完整自动化实时浏览器 E2E 运行于 `0.2.2-rc.3`；真实任务样例不代表全部生命周期验收 |
 | dsh-wsl 0.1.12，rc.3 桥接单元契约 | WSL 前缀会话的 schema v2 快照透传与契约检查 | 使用仓库单元模拟运输；未实测真实 Windows Electron ↔ WSL2 跨端 |
-| Windows Desktop / 局域网使用端 | 尚未验收本次候选 | 未在真机 Desktop / 独立使用端实机验收 |
+| Windows Desktop / 局域网使用端 | 部分场景尚未验收 | 未在真机 Desktop / 独立使用端实机验收 |
 
 ## 检查内容
 
@@ -34,4 +34,4 @@
 
 请求目的来自模型 `justification` 或工具 `tool-adapter` / 声明元数据；runtime 只能约束可判定的格式，不能保证其语义真实。支持的参数 schema、快照或 UI 锚点缺失时保留原生 `ApprovalCard` + `ApprovalCommand` 展示，不替换官方批准决定通道；快照仅保存在 pending 生命周期内的内存中，经由既有授权 RPC 只读读取。
 
-这是候选版本：Windows Desktop 与独立使用端真机验收完成后，再决定正式 npm 发布。
+正式版本号不扩大已验证范围。Windows Desktop 与独立使用端尚未覆盖的场景继续按上表记录；发布与使用时保留这些限制。

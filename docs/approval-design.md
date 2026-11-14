@@ -1,6 +1,6 @@
 # 审批 runtime 与两行面板实现方案
 
-状态：`0.2.15-dev.7` 已实现本页的 schema v2、两行界面及官方审批类别适配，完成 rc.2/rc.3 执行对照与 rc.3 隔离浏览器检查；真实会话的基础审批已核对。系统原生 CUA、全部 Desktop/WSL 生命周期及远端环境尚未完成验收，范围见 [visual-verification.md](visual-verification.md)。本页保留设计依据与验收条件，替代旧的“目的、对象、原始调用、展开详情”设计。
+状态：`0.2.17` 包含的实现已完成本页的 schema v2、两行界面及官方审批类别适配，完成 rc.2/rc.3 执行对照与 rc.3 隔离浏览器检查；真实会话的基础审批已核对。系统原生 CUA、全部 Desktop/WSL 生命周期及远端环境尚未完成验收，范围见 [visual-verification.md](visual-verification.md)。本页保留设计依据与验收条件，替代旧的“目的、对象、原始调用、展开详情”设计。
 
 ## 目标与边界
 

@@ -16,7 +16,7 @@ ask-nonblocking 依赖 DSH 的内部接口（`agent/created` 事件、`agent.ctx
 dsh plugin --profile web add @herenfor/dsh-tune
 ```
 
-本页审批改造基于 `0.2.15-dev.7`。预发布使用 npm `next` 标签，确认版本已发布后可安装 `@herenfor/dsh-tune@next`；尚未发布的候选使用下面的本地源码安装方式。
+本页审批改造包含在 `0.2.17`，正式发布使用 npm `latest` 标签；确认版本已发布后可按上述方式安装，发布前可使用下面的本地源码安装方式。
 
 或者先克隆到本地，再用本地路径安装：
 
@@ -234,7 +234,7 @@ dsh plugin --profile web remove @herenfor/dsh-tune
 卸载后重启 DSH。如果在 profile 补丁里写过配置覆盖，也一起删掉。
 
 
-### 审批详情与聊天表格（0.2.15-dev.7）
+### 审批详情与聊天表格（0.2.17）
 
 审批卡默认收敛为两行纯文本展示（第一行显示请求用途与可选风险徽章，第二行显示申请权限范围与生效期限；不展示原始命令或 JSON），同时保留官方黄色等待条、边框与原生批准/拒绝按钮及快捷键守卫；CUA `cua-app-access` 与 `cua-mouse-control` 经由 `user-questions/request` 通道同步适配。宿主侧 `approval-info` 提供基于 schema v2 的 `runtimeTuningApproval/read` 临时只读快照、模型 `justification` 的简洁格式检查（不合格回退原生审批，不阻断原生合法调用；明显凭据仍拦截），以及 `prepare()` → `dispatch()` 审批后参数完整性校验（合法 `wait-guard`、`session-tmp`、`fs-view` 改写放行，未授权篡改 fail-closed）。
 
