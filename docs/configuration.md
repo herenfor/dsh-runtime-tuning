@@ -2,11 +2,9 @@
 
 ## 使用环境
 
-声明支持 DSH `0.2.2-rc.1` 及之后的 `0.2.x` 版本（`>=0.2.2-rc.1 <0.3.0-0`）；还在 `0.2.1` 上的请用插件 `0.2.5`。调优预设照官方 standard 写，官方改了 standard 里的插件（`0.2.2` 就去掉了一个子路径），预设要跟着更新，所以 DSH 升级后如果调优会话打不开，先看这里有没有新版。`0.2.2-rc.2` 把官方聊天界面的 `client.js` 换成压缩写法，chat-answer-fix 已按正则适配（rc.1 的写法也还能改），调优预设也按 rc.2 的 standard 更新。实际跑过真实会话的是 DSH `0.2.2-rc.1` 和 `0.2.2-rc.2` 的 `web` profile（Windows 11 + WSL2，Node.js `22.23.4`）；rc.2 重启后实测 chat-answer-fix 记为 `patched`、调优预设会话正常、`interrupt_agent` 不再出现、显示设置刷新后保留。DSH 升到 `0.3` 时需要插件更新声明后才能安装。
+面向有人使用的交互式 Web / Desktop（包括 WSL 桥接端）。声明安装范围由 `package.json` 的 `engines.dsh` 给出；**已测版本、环境及未覆盖范围统一见 [README 的版本表](../README.md#已测版本)**。升级宿主后，依赖内部接口的能力需要重新检查。
 
-`headless`、`sdk` 等 profile 暂不支持：wait-guard 会让模型结束一轮去等通知，没有人在看的运行环境不适合这样做。
-
-ask-nonblocking 依赖 DSH 的内部接口（`agent/created` 事件、`agent.ctx`，以及在宿主的 pnpm 目录里找到官方模块），DSH 升级后可能失效。失效时只是退回阻塞版提问，不会影响任务。
+`headless`、`sdk` 等 profile 暂不支持：等待与提醒功能按交互式会话设计。部分模块适配失败时会退回官方行为；旧宿主的配套版本可查 [更新记录](../CHANGELOG.md)。
 
 ## 安装
 
@@ -16,7 +14,7 @@ ask-nonblocking 依赖 DSH 的内部接口（`agent/created` 事件、`agent.ctx
 dsh plugin --profile web add @herenfor/dsh-tune
 ```
 
-本页审批改造包含在 `0.2.17`，正式发布使用 npm `latest` 标签；确认版本已发布后可按上述方式安装，发布前可使用下面的本地源码安装方式。
+正式发布使用 npm `latest` 标签；目标版本与实测范围见 [README](../README.md#已测版本)。确认 npm 已发布后安装，发布前可使用下面的本地源码安装方式。
 
 或者先克隆到本地，再用本地路径安装：
 
@@ -216,6 +214,18 @@ DSH 的模型几乎只在最后才写正文，干活时不说话：近期 17 个
 | `enabled` | `true` | 设为 `false` 关闭 |
 | `minutes` | `3` | 多少分钟没有可见正文才提醒，也是两次提醒的最短间隔 |
 | `minSteps` | `3` | 其间至少多少个工具步 |
+
+### 上下文压缩推理档位修复（`compaction-effort`）
+
+- **挂载位置**：在 `cordis.patch.yml` 的 `调优（tuned）` 预设（`runtime-tuning-preset-tuned`）的隔离 `compaction` 组内，将 `compaction-basic` 指向 `@herenfor/dsh-tune/plugins/compaction-effort.mjs`（同时在 `plugins/tool-use-prompt.mjs` 的预设解析中把该行以及既有定制的 `@deepseek-ai/dsh-compaction-basic` 自动映射到同一实现；第三方的自定义压缩插件名保留不变）。
+- **默认行为**：
+  - 主对话与摘要目标同属同一 `(provider, model)` 且模型元数据包含该档位时，单次 `summarize` 调用作用域内继承主对话最新 `request/header` 的有效 `reasoningEffort`（例如主对话为 `max` 时摘要请求也发 `max`，以保持复用已有前缀缓存的配置条件；主对话为 `high` 或仅依赖 adapter/模型默认档位时同理保留对应有效值）。
+  - 若配置了独立的 `summarizationProvider` / `summarizationModel`（与主对话不同），保留摘要目标模型自身的配置与默认值，不强塞主对话的 `reasoningEffort`。
+- **可选配置项**（写在 `compaction-basic` 的 `config` 或 `modelPolicies[]` 条目内）：
+  - `inheritReasoningEffort`（布尔，默认 `true`）：设为 `false` 可关闭隐式继承，回退官方默认行为。
+  - `summarizationReasoningEffort`（字符串，可选）：显式指定摘要请求使用的 `reasoningEffort`，优先级高于隐式继承（对同模型和独立模型均生效；若目标模型不支持则会按模型能力校验丢弃并透传官方行为）。
+- **其他预设 / 独立挂载**：官方 `standard` / `ptc` / `cordis` / `minimal` 默认保持未修改；若自定义预设或非预设单实例部署也需要该修复，可在其配置中将 `compaction-basic` 指向 `@herenfor/dsh-tune/plugins/compaction-effort.mjs`。
+- **升级、兼容与禁用回退**：通过 `findHostPackage` 动态定位运行中 DSH 的 `@deepseek-ai/dsh-compaction-basic` 并派生其 `BasicCompactionEngine`；若上游接口变更导致 `summarize` 不匹配，插件会记录降级事件并回退到原始实现。实测版本与范围集中记录在 [README](../README.md#已测版本)。由于既有 `tuned` 会话会持久化 `agent-preset/selected: "tuned"`，直接禁用 `runtime-tuning-preset-tuned` 或卸载插件包会使尚未切换预设的既有会话触发 `Unknown agent preset: tuned`。若要在保持既有 `tuned` 会话可恢复的前提下恢复官方压缩行为，请保留 `tuned` 并设置 `inheritReasoningEffort: false`（并移除顶层及逐模型的显式 `summarizationReasoningEffort` 和 `inheritReasoningEffort: true` 覆盖）；如需彻底禁用 `tuned` 预设或卸载插件包，须先迁移既有 `tuned` 会话的预设绑定。
 
 ## 配合 dsh-sentinel
 

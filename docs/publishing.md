@@ -1,11 +1,11 @@
 # 发布到 npm
 
-当前正式发布版本为 `0.2.17`，使用 npm `latest` 标签。已完成的检查与仍待实测的平台见 [验证范围](visual-verification.md)。由所有者在 WSL 中执行；先提交并推送代码，让 main 工作区干净且与 origin/main 一致，再运行：
+当前源码目标正式版本为 `0.2.18`，使用 npm `latest` 标签。版本与检查范围集中见 [README](../README.md#已测版本)，压缩实验见 [复现记录](compaction-cache.md)。由所有者在 WSL 中执行；先提交并推送代码，让 main 工作区干净且与 origin/main 一致，再运行：
 
 ```bash
-scripts/release.sh 0.2.17 --dry-run
+scripts/release.sh 0.2.18 --dry-run
 npm login                        # 登录过期时执行
-scripts/release.sh 0.2.17 --local
+scripts/release.sh 0.2.18 --local
 ```
 
 脚本先跑单元测试和实际打包安装检查，再发布到 npm；确认 registry 可查后才打标签并推送。不自动更新已安装插件。预发布版本使用 next 标签，正式版本使用 latest。发布失败时保留源码，可修复后重跑；如果 npm 已有同版本，脚本会核对已发布包的完整性，再补标签。版本号在 package.json 中维护，每个版本只能发布一次。

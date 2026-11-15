@@ -25,15 +25,34 @@ export function apply(ctx) {
 
 // Preset children resolve from the host profile, whose dependency key may still
 // be the pre-npm name. Use this installed module's URL instead of its package name.
-export function resolvePresetConfig(config, moduleUrl = import.meta.url) {
-  const selfNames = new Set([
+export function resolvePresetConfig(
+  config,
+  moduleUrl = import.meta.url,
+  compactionUrl = new URL('./compaction-effort.mjs', moduleUrl).href,
+) {
+  const promptNames = new Set([
     '@herenfor/dsh-tune/plugins/tool-use-prompt.mjs',
     'dsh-runtime-tuning/plugins/tool-use-prompt.mjs',
   ])
+  const compactionNames = new Set([
+    '@herenfor/dsh-tune/plugins/compaction-effort.mjs',
+    'dsh-runtime-tuning/plugins/compaction-effort.mjs',
+    '@deepseek-ai/dsh-compaction-basic',
+  ])
+  const mapRow = (row) => {
+    let next = row
+    if (row.id === 'tool-use-prompt' && promptNames.has(row.name)) {
+      next = { ...next, name: moduleUrl }
+    } else if (row.id === 'compaction-basic' && compactionNames.has(row.name)) {
+      next = { ...next, name: compactionUrl }
+    }
+    if (next.group === true && Array.isArray(next.config)) {
+      next = { ...next, config: next.config.map(mapRow) }
+    }
+    return next
+  }
   return {
     ...config,
-    plugins: config.plugins.map(row => row.id === 'tool-use-prompt' && selfNames.has(row.name)
-      ? { ...row, name: moduleUrl }
-      : row),
+    plugins: config.plugins.map(mapRow),
   }
 }

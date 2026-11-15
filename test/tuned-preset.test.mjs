@@ -26,9 +26,43 @@ test('调优预设去掉了定时、goal、计划模式、workflow 和 subagent_
   assert.match(tuned, /name: '@herenfor\/dsh-tune\/plugins\/tool-use-prompt\.mjs'/)
 })
 
+const COMPACTION_EFFORT_PLUGIN = '@herenfor/dsh-tune/plugins/compaction-effort.mjs'
+const OFFICIAL_COMPACTION_PLUGIN = '@deepseek-ai/dsh-compaction-basic'
+
+function findHostDshBin() {
+  const candidates = [
+    process.env.DSH_BIN,
+    join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js'),
+    join(homedir(), '.local/bin/dsh'),
+    '/usr/local/bin/dsh',
+  ].filter(Boolean)
+  return candidates.find((candidate) => existsSync(candidate))
+}
+
+export function normalizeCompactionRow(id, text) {
+  if (id !== 'compaction-basic' || typeof text !== 'string') return text
+  const row = JSON.parse(text)
+  if (row.name === COMPACTION_EFFORT_PLUGIN) {
+    row.name = OFFICIAL_COMPACTION_PLUGIN
+  }
+  return JSON.stringify(row)
+}
+
+test('compaction-basic row normalization swaps only the compaction-basic plugin name and preserves drift detection', () => {
+  const expected = JSON.stringify({ id: 'compaction-basic', name: OFFICIAL_COMPACTION_PLUGIN })
+  const sameRow = JSON.stringify({ id: 'compaction-basic', name: COMPACTION_EFFORT_PLUGIN })
+  assert.equal(normalizeCompactionRow('compaction-basic', sameRow), expected)
+
+  const driftedConfig = JSON.stringify({ id: 'compaction-basic', name: COMPACTION_EFFORT_PLUGIN, maxTurns: 12 })
+  assert.notEqual(normalizeCompactionRow('compaction-basic', driftedConfig), expected)
+
+  const unrelatedRow = JSON.stringify({ id: 'compaction', name: COMPACTION_EFFORT_PLUGIN })
+  assert.equal(normalizeCompactionRow('compaction', unrelatedRow), unrelatedRow)
+})
+
 test('L2：预设引用的官方包在本机 DSH 里都存在（含子路径导出）', (t) => {
-  const dsh = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
-  if (!existsSync(dsh)) return t.skip('host dsh-cli install absent')
+  const dsh = findHostDshBin()
+  if (!dsh) return t.skip('host dsh install absent')
   const names = [...tuned.matchAll(/name: '@deepseek-ai\/([a-z0-9-]+)(\/[a-z0-9-]+)?'/g)]
   assert.ok(names.length >= 18)
   for (const [, pkg, sub] of names) {
@@ -44,8 +78,8 @@ test('调优预设默认关闭（会话绑定预设，用的人自己打开）',
 
 // 手写的预设不会跟着官方变：本机 DSH 的 standard 一改，这里就报出来，按报出的差异手动更新 cordis.patch.yml。
 test('L2：调优预设与本机 DSH 的 standard 只差有意去掉和加上的几项', (t) => {
-  const dsh = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
-  if (!existsSync(dsh)) return t.skip('host dsh-cli install absent')
+  const dsh = findHostDshBin()
+  if (!dsh) return t.skip('host dsh install absent')
   const { parse } = createRequire(join(findHostPackage(dsh, 'dsh-config-editor'), 'package.json'))('yaml')
   const load = (text) => parse(text, { customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (v) => `!!js ${v}` }] })
   const presetOf = (layer, id) => layer.flatMap((row) => row.insert ?? [row]).find((row) => row.config?.id === id).config.plugins
@@ -72,7 +106,9 @@ test('L2：调优预设与本机 DSH 的 standard 只差有意去掉和加上的
   const drift = []
   for (const [id, row] of standard) {
     if (removed.includes(id)) continue
-    const same = id === 'skill-filesystem' ? withoutSkillDirs(row) === ours.get(id) : ours.get(id) === row
+    const same = id === 'skill-filesystem'
+      ? withoutSkillDirs(row) === ours.get(id)
+      : row === normalizeCompactionRow(id, ours.get(id))
     if (!same) drift.push(`${id}\n  standard: ${row}\n  tuned:    ${ours.get(id)}`)
   }
   for (const id of ours.keys()) if (!standard.has(id) && id !== 'tool-use-prompt') drift.push(`${id} 只在调优预设里`)

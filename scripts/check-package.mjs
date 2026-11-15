@@ -29,7 +29,24 @@ try {
   // Import the installed prompt module, then verify its runtime self-reference stays inside this installation.
   const module = await import(fromHost.resolve(prompt))
   assert.equal(typeof module.apply, 'function')
-  const config = module.resolvePresetConfig({ id: 'tuned', plugins: [{ id: 'tool-use-prompt', name: prompt }] })
+  const [, compaction] = /name: '(@herenfor\/dsh-tune\/plugins\/compaction-effort.mjs)'/.exec(patch) ?? []
+  assert.ok(compaction, 'preset uses the published compaction-effort module')
+  assert.ok(fromHost.resolve(compaction).startsWith(installed))
+  const compactionMod = await import(fromHost.resolve(compaction))
+  assert.equal(typeof compactionMod.createCompactionEffortEngine, 'function')
+  const config = module.resolvePresetConfig({
+    id: 'tuned',
+    plugins: [
+      { id: 'tool-use-prompt', name: prompt },
+      {
+        id: 'compaction',
+        name: 'cordis:group',
+        group: true,
+        config: [{ id: 'compaction-basic', name: compaction }],
+      },
+    ],
+  })
   assert.equal(fileURLToPath(config.plugins[0].name), fromHost.resolve(prompt))
+  assert.equal(fileURLToPath(config.plugins[1].config[0].name), fromHost.resolve(compaction))
   console.log(`Package OK: ${pkg.name}@${pkg.version}, ${names.length} files; offline install and preset resolution passed`)
 } finally { rmSync(temp, { recursive: true, force: true }) }
