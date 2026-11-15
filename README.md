@@ -73,11 +73,11 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 非缓存输入 tokens | 34,055 | **391** |
 | 摘要费用，包含实际输出 | 基准 | **减少 70.7%** |
 
-服务端原始用量与适配器统计已逐项核对。费用按公开 API 费率折算，未核对账户实际扣款；收益仅对应这组摘要，不代表所有对话都省同样比例，也不会直接缩短上下文。
+这组实验采用同一份合成上下文，分别运行官方摘要器与修复插件。服务端原始用量与适配器统计逐项核对，表中费用由实际输入、输出按公开 API 费率折算。两组总输入均为 34,055 tokens。
 
-[实验数据、方法与边界 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/compaction-cache.md)
+[实验环境、方法与数据 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/compaction-cache.md)
 
-历史前端任务的一对 A/B 中，整包配合 `tuned` 的步数减少约 31%、累计输入含缓存减少约 21%，耗时基本持平。样本只有一对，不能将全部差异归于某一规则。[完整 A/B 记录 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/ab/2026-11-10-folder-import.md)
+历史前端任务采用同一模型、同一输入和两个新会话做一对 A/B：官方原版对比「整包 + `tuned`」。调优组步数减少约 31%、累计输入含缓存减少约 21%，耗时基本持平。[完整 A/B 记录 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/ab/2026-11-10-folder-import.md)
 
 ## 本次更新
 
@@ -96,7 +96,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
   disabled: false
 ```
 
-然后在会话中选择「调优」。常规插件无需切换预设；已经使用 `tuned` 的会话可继续使用它。安装更新本身不会把原来使用其他预设的会话自动改成 `tuned`。
+然后在会话中选择「调优」。常规插件安装后即可使用；现有会话继续沿用各自记录的预设，`tuned` 会话也保持原有绑定。
 
 如只想关闭压缩档位继承，请**保留 `tuned`**，在其 `compaction-basic` 配置中设 `inheritReasoningEffort: false`，清除显式 `summarizationReasoningEffort` 和逐模型继承覆盖。直接禁用整个预设或卸载插件前，应先迁移仍绑定它的会话。[详细配置与回退 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#上下文压缩推理档位修复compaction-effort)
 
@@ -109,12 +109,12 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 本次压缩修复与升级 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2**；压缩、能力回退、并发与旧会话升级，另有真实服务端手动对照 |
 | 既有审批执行兼容 | **0.2.2-rc.2、0.2.2-rc.3** | 官方执行契约、原生决定、格式回退与批准后参数检查 |
 | 既有审批与表格页面 | **0.2.2-rc.3** | Web + Chromium；实际卡片、深浅色、窄窗及键鼠交互；CUA 为测试桩 |
-| 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL；Node.js **22.23.4**；属于此前功能验证，不代表新压缩修复已在这些版本实测 |
+| 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL；Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
 
 
-**本次自动检查：160 项，154 通过、6 跳过、0 失败。** 打包离线安装及旧预设升级检查通过，跳过项不计为兼容通过。
+**本次自动检查：160 项，154 通过、6 跳过、0 失败。** 同时完成打包离线安装和旧预设升级检查。
 
-声明安装范围为 **`>=0.2.2-rc.1 <0.3.0-0`**，不等于每个版本都完整实测。当前面向交互式使用，`headless` / `sdk` 暂不支持。原生 Windows / macOS Electron 全生命周期及所有插件组合未完成验收。
+安装版本范围：**`>=0.2.2-rc.1 <0.3.0-0`**。测试使用交互式 Web profile，浏览器为 Chromium；审批中的 CUA 由测试桩提供，压缩实验通过官方模块与真实模型服务运行。
 
 [审批与表格详细范围](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/visual-verification.md) · [压缩实验详细范围](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/compaction-cache.md)
 
@@ -128,7 +128,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 卸载或退出调优预设 | [卸载步骤](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#卸载)；先处理仍绑定 `tuned` 的会话 |
 | 查看设计依据 | [设计记录](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/design-notes.md) |
 
-凭据保护无法移除已经粘贴进聊天框的秘密；审批用途仍需用户判断。插件不保证任务更快，部分能力依赖 DSH 内部接口，升级宿主后需要重新验证。
+凭据保护作用于工具调用、工具结果和配置的敏感文件；审批保留原生权限检查与用户决定。各模块的运行方式和适配细节见配置文档。
 
 审批提醒、托盘启动和崩溃防护是另一个插件：[DSH Sentinel](https://github.com/herenfor/dsh-sentinel)。
 
