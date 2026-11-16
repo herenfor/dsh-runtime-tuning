@@ -1,0 +1,22 @@
+{
+  "name": "@herenfor/dsh-tune-sidebar-open",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Autonomous right-sidebar file and URL preview module for DSH.",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}

@@ -105,7 +105,7 @@ export function maskArgv(argv, targets, note) {
   return undefined
 }
 
-const FILE_ARGS = { read: 'file_path', read_image: 'file_path', write: 'file_path', edit: 'file_path' }
+const FILE_ARGS = { read: 'file_path', read_image: 'file_path', write: 'file_path', edit: 'file_path', open_sidebar: 'path' }
 
 /** 文件工具要碰的路径落在遮挡范围里时返回命中的那一项。grep 的搜索目录是遮挡路径的上级也算（DSH 的 grep 会搜隐藏文件）。 */
 export function blockedTarget(exec, targets, real = (p) => { try { return realpathSync(p) } catch { return p } }) {

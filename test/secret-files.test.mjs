@@ -59,6 +59,8 @@ test('文件工具：读写遮挡的文件、目录里的文件、搜上级目�
   const exec = (name, args) => ({ name, arguments: args, agent: { session: { header: { cwd: '/h/proj' } } } })
   const real = (p) => p
   assert.equal(blockedTarget(exec('read', { file_path: '/h/.aws/credentials' }), targets, real), targets[0])
+  assert.equal(blockedTarget(exec('open_sidebar', { path: '/h/.aws/credentials' }), targets, real), targets[0])
+  assert.equal(blockedTarget(exec('open_sidebar', { path: 'docs/report.html' }), targets, real), undefined)
   assert.equal(blockedTarget(exec('read', { file_path: '../.config/gcloud/creds.db' }), targets, real), targets[1])
   assert.equal(blockedTarget(exec('write', { file_path: '/h/.config/gcloud/new' }), targets, real), targets[1])
   assert.equal(blockedTarget(exec('grep', { pattern: 'x', path: '/h' }), targets, real), targets[0])

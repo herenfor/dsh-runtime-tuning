@@ -13,7 +13,7 @@ const npm = (args) => execFileSync('npm', args, { cwd: root, encoding: 'utf8', s
 try {
   const [packed] = JSON.parse(npm(['pack', '--json', '--pack-destination', temp]))
   const names = packed.files.map(f => f.path)
-  for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/tuned-preset.mjs', 'plugins/collaborative-preset.mjs', 'plugins/collaboration-prompt.mjs', 'plugins/tool-discovery.mjs', 'plugins/grep-enhanced.mjs', 'plugins/grep-engine.mjs', 'plugins/host-modules.mjs', 'plugins/log.mjs', 'ui-chat/index.mjs', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
+  for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/tuned-preset.mjs', 'plugins/collaborative-preset.mjs', 'plugins/collaboration-prompt.mjs', 'plugins/tool-discovery.mjs', 'plugins/grep-enhanced.mjs', 'plugins/grep-engine.mjs', 'plugins/host-modules.mjs', 'plugins/log.mjs', 'plugins/sidebar-open.mjs', 'ui-chat/index.mjs', 'ui-sidebar-open/package.json', 'ui-sidebar-open/index.mjs', 'ui-sidebar-open/client.js', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
   for (const name of names) assert.ok(!/^(?:test|scripts|\.git|\.claude)\/|^ui-chat\/(?:assets\/|client.js$|package.json$)|\.tgz$/.test(name), `unexpected package file: ${name}`)
   npm(['install', '--prefix', temp, '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--offline', join(temp, packed.filename)])
   const fromHost = createRequire(join(temp, 'package.json'))
