@@ -1,25 +1,25 @@
 # 测试版与正式版发布
 
-当前测试版本为 **`0.2.19-beta.1`**。GitHub Release 分发源码与安装包，npm 分发包；两者分别发布。实测版本与范围集中见 [README](../README.md#已测版本)。
+当前发布版本为 **`0.2.19`**。GitHub Release 分发源码与安装包，npm 分发包；两者分别发布。实测版本与范围集中见 [README](../README.md#已测版本)。
 
 ## 版本与通道
 
 | 阶段 | 版本示例 | GitHub | npm 标签 |
 | --- | --- | --- | --- |
-| 试用验证 | `0.2.19-beta.1`、`0.2.19-beta.2` | Pre-release | `beta` |
+| 试用验证 | `0.2.20-beta.1`、`0.2.20-beta.2` | Pre-release | `beta` |
 | 持续开发快照 | `0.2.20-dev.1` | Pre-release | `next` |
-| 正式发布 | `0.2.19` | Release | `latest` |
+| 正式发布 | `0.2.19`、`0.2.20` | Release | `latest` |
 
 本项目的新功能完成实现与回归后，先发 Beta；试用反馈有修改就递增 Beta 序号，确认后去掉后缀发布正式版。不填写版本或标签时通常安装 `latest`，测试者需要明确选择 `beta` 或准确版本。
 
-## 发布当前 npm Beta
+## 发布当前版本
 
 由所有者在 WSL 仓库根目录执行。先提交并推送代码，让 main 工作区干净且与 origin/main 一致：
 
 ```bash
-scripts/release.sh 0.2.19-beta.1 --dry-run
+scripts/release.sh 0.2.19 --dry-run
 npm login                        # 登录过期时执行
-scripts/release.sh 0.2.19-beta.1 --local
+scripts/release.sh 0.2.19 --local
 ```
 
 脚本先跑单元测试和实际打包安装检查，将当前 Beta 发布到 `beta`，保留 `latest`。确认 registry 可查后才创建并推送版本标签；如果 GitHub 发布已创建同一提交的标签，会直接复用。

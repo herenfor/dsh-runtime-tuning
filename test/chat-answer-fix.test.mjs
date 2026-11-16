@@ -116,7 +116,8 @@ test('L2：替身能加载官方服务端；用户存在 ui-chat 上的显示设
   process.argv[1] = join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')
   const ui = await import('../ui-chat/index.mjs')
   assert.equal(typeof ui.apply, 'function')
-  assert.deepEqual([...ui.SETTING_FIELDS].sort(), Object.keys(ui.Config.dict ?? {}).sort())  // 按当前官方 Config 的字段搬
+  const extraFields = new Set(['tableLayout', 'approvalDetails'])
+  assert.deepEqual([...ui.SETTING_FIELDS].sort(), Object.keys(ui.Config.dict ?? {}).filter((k) => !extraFields.has(k)).sort())  // 按当前官方 Config 的字段搬（不含插件扩展开关）
   for (const field of ['transcriptView', 'collapseTiming', 'performanceUsage', 'linkOpening']) assert.ok(ui.SETTING_FIELDS.includes(field))
   const row = (id, config) => ({ options: { id, config } })
   const official = row('ui-chat', { transcriptView: 'standard', linkOpening: 'new-tab' })

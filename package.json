@@ -1,6 +1,6 @@
 {
   "name": "@herenfor/dsh-tune",
-  "version": "0.2.19-beta.2",
+  "version": "0.2.19",
   "type": "module",
   "dsh": {
     "bundle": {

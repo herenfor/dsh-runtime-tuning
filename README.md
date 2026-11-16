@@ -14,11 +14,9 @@ DeepSeek Harness 运行调优插件 · `@herenfor/dsh-tune`
 
 </div>
 
-慢命令放到后台，提问后继续处理其他工作，长时间沉默时提醒汇报，结束前核对任务清单。审批卡和聊天表格也更容易阅读。
+让 DeepSeek Harness 更适合真实工程与长程任务：审批卡精简清晰、提问和等待不再卡死进程、长任务自动提醒进展与收尾、模型可在右侧栏自主打开网页或文件供即时预览，并提供「协作」与「调优」两个可选预设。
 
-**常规功能安装即用；`tuned` 调优预设按需开启。** 压缩缓存修复在 `tuned` 中生效。
-
-**Beta 新增「协作」预设（`collaborative`）：** 承接用户目标与纠正、形成合理方案，保留完整 standard 能力，并加入工具发现和 grep 增强。[测试版下载 →](https://github.com/herenfor/dsh-runtime-tuning/releases/tag/v0.2.19-beta.1) · [使用与配置 →](docs/collaborative-preset.md)
+> **生效范围说明**：常规增强（审批、等待、提问、进展提醒、表格与回答修复、凭据保护、`open_sidebar` 侧栏预览）**安装即自动生效**，无需切换预设；`collaborative`（「协作」）可在新建会话时按需选用，`tuned`（「调优」）默认关闭，需在配置启用。
 
 <a id="快速开始"></a>
 
@@ -42,17 +40,18 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 能帮你做什么
 
-| 能力 | 主要变化 |
-| --- | --- |
-| 审批更清楚 | 用途与权限两行呈现，保留黄色等待条、原生决定和重要风险告知 |
-| 等待可继续 | 慢命令转后台，补充任务状态，完成后核对收尾 |
-| 长任务有反馈 | 非阻塞提问、进展提醒、清单核对及等待兜底 |
-| 回答更易读 | 表格随消息列宽排版，修复部分答复被折叠的问题 |
-| 凭据多一道保护 | 检查凭据相关调用，隐藏敏感文件，给工具结果打码 |
-| 协作预设（Beta） | 目标与方案协作、完整工具能力、`tool_search` 按需发现、准确检索 |
-| `tuned` 压缩缓存 | 沿用同模型主对话的有效推理档位，减少可避免的非缓存输入 |
+| 能力领域 | 原版痛点 | 插件改动与实际行为 | 生效方式 / 模块 |
+| --- | --- | --- | --- |
+| **审批看懂再点** | 长命令与原始 JSON 参数占满卡片，核心目的不直观 | 收敛为「申请原因 + 权限范围」两行纯文本，保留原生按钮、黄色等待条、风险提示与审批后参数完整性校验；格式不合格自动回退原生卡片 | 默认开启 · `approval-info` / `ui-chat` |
+| **模型自主侧栏预览** | 模型生成 HTML、报告、图片或启动服务后，需用户手动找文件或复制 URL | 新增 `open_sidebar` 工具：模型可直接在当前在屏会话的右侧栏打开工作区/本地文件（支持行号、`sidebar`/`float`）或 HTTP(S) 网页；后台会话切回时补开一次，刷新/翻历史不重弹 | 默认开启 · `ui-sidebar-open` |
+| **慢任务与提问不阻塞** | `sleep` / `job_output` 容易卡住整轮，提问需干等回答，后台任务常遗漏 | 超长前台等待自动封顶转后台；`ask_user_question` 超时先返回 `pending` 以便继续并行；`task_status` 声明状态、结束前清点遗漏后台任务并设兜底唤醒；沙箱与文件工具共享会话 `/tmp` | 默认开启 · `wait-guard` / `ask-nonblocking` / `session-tmp` |
+| **长任务有进展、有收尾** | 连续数十步无正文汇报、todo 只写不管、流停滞干等 | 沉默超 3 分钟且满 3 步后附带轻提醒，清单过期或收尾未对齐时提醒顺带更新，流卡住超时主动触发重试，避免带收尾工具结束时正文被折叠 | 默认开启 · `progress-note` / `todo-reminder` / `stream-stall` / `ui-chat` |
+| **聊天表格与文件兼容** | 宽表挤压正文，直接 `edit` 未读/陈旧文件或后缀错标的图易失败 | 表格随实际消息列宽自适应滚动并保留完整数值；`edit` 自动对齐当前文件版本，`read_image` 按文件头真实格式嗅探读取 | 默认开启 · `ui-chat` / `fs-view` |
+| **凭据三层防护** | 沙箱默认可读宿主文件，对话或输出易意外带出令牌 | 拦截索要或直接传入明文令牌的调用；对沙箱及 `read` / `write` / `edit` / `grep` / `open_sidebar` 遮蔽常见云、仓库与 DSH 凭据目录；工具结果中的密钥自动打码 | 默认开启 · `secret-guard` / `secret-files` |
+| **「协作」预设** | 缺目标承接与延迟发现，复杂检索模式有限 | 基于完整 `standard` 构建，保留内置技能、计划、goal、定时、工作流与子代理；补充协作规范、`tool_search` 低频能力按需发现，以及增强版 `grep`（上下文/排除/跨行/计数） | 新建会话可选 · `collaborative`（[详情](docs/collaborative-preset.md)） |
+| **「调优」预设与缓存修复** | 日常编码很少用到定时/工作流工具；压缩摘要未沿用推理档位导致同模型前缀缓存失效 | 去掉定时、goal、计划、工作流与 `subagent_fork`，保留思考深度；手动/自动/溢出压缩继承同模型有效 `reasoningEffort`，降低非缓存输入费用 | 需配置启用 · `tuned` / `compaction-effort` |
 
-所有模块均可独立配置。[配置项、默认值和开关 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#配置)
+所有模块均可按 id 独立开关或调整参数。[配置项、默认值与逐项说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#配置)
 
 <a id="审批预览"></a>
 
@@ -84,14 +83,14 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 本次更新
 
-**`0.2.19-beta.1` · 协作预设测试版**
+**`0.2.19` · 自主侧栏预览与「协作」预设**
 
-- **新预设「协作」**：承接用户目标、已有决定与最新纠正，形成方案并推进已授权工作；从完整 standard 组合构建。
-- **工具按需发现**：常用工具直接可用，定时任务、工作流等通过 `tool_search` 查询并从下一步启用。
-- **grep 增强**：支持内容、文件名、计数、上下文、排除和跨行，长行预览保留真实命中。
-- **临时目录修复**：位于 `/tmp` 的真实工作区继续使用原始路径，shell 与文件工具保持一致。
+- **自主侧栏预览（`open_sidebar`）**：模型生成文件或启动页面后，可主动在当前在屏会话的右侧栏直接预览（支持工作区/本地文件路径、代码/Markdown 行号、`sidebar`/`float` 位置以及 `http://`/`https://` 网页）；后台会话触发时会在切回该会话后补开一次，刷新与历史翻页不重复弹出，对话中提供可重开的预览操作行；`secret-files` 同步拦截凭据路径。
+- **新预设「协作」（`collaborative`）**：承接用户目标、已有决定与最新纠正，形成方案并推进已授权工作；基于完整 `standard` 组合构建，保留内置技能、计划、goal、定时与工作流。
+- **工具按需发现（`tool_search`）**：高频工具直接可用，定时任务、工作流及 MCP 能力按需查询并从下一步启用；同一步骤提前调用未加载工具会被拒绝，子代理保留完整 native 工具。
+- **grep 增强与 `/tmp` 修复**：支持 `content` / `files_with_matches` / `count` 模式、前后文、排除规则与跨行匹配，长行预览保留真实命中；修复 `/tmp` 下真实工作区在 `session-tmp` 中的路径识别。
 
-新能力位于独立的 `collaborative` 预设，原有 `tuned` 和默认预设选择保留。测试版安装包及安装方法见 [GitHub Pre-release](https://github.com/herenfor/dsh-runtime-tuning/releases/tag/v0.2.19-beta.1)；npm 稳定安装仍使用 `latest`。[完整更新记录 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md)
+[协作预设详情 →](docs/collaborative-preset.md) · [完整更新记录 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md)
 
 ## 可选：开启调优预设
 
@@ -108,18 +107,18 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 已测版本
 
-**本次测试版：`@herenfor/dsh-tune@0.2.19-beta.1`，通过 GitHub Pre-release 提供。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
+**当前版本：`@herenfor/dsh-tune@0.2.19`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
 
 | 验证项目 | DSH 版本 | 环境与已验证范围 |
 | --- | --- | --- |
-| 本次压缩修复与升级 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2**；压缩、能力回退、并发与旧会话升级，另有真实服务端手动对照 |
-| 协作预设 Beta | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2**；真实隔离 Host + 模拟 adapter，工具发现、步骤准入、grep、重启恢复与会话隔离；Chromium 实际页面与工具轨迹截图 |
-| 既有审批执行兼容 | **0.2.2-rc.2、0.2.2-rc.3** | 官方执行契约、原生决定、格式回退与批准后参数检查 |
-| 既有审批与表格页面 | **0.2.2-rc.3** | Web + Chromium；实际卡片、深浅色、窄窗及键鼠交互；CUA 为测试桩 |
-| 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL；Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
+| 自主侧栏预览（`0.2.19`） | **0.2.2-rc.3** | Linux / WSL，Node.js **22.23.4**；L1/L2 契约、启动图与 `dsh-wsl` 镜像校验、离线宿主集成；并在本机 `desktop-wsl` 桥接实测侧栏打开效果 |
+| 压缩修复与升级 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2** / **22.23.4**；压缩、能力回退、并发与旧预设升级回归，另有真实服务端手动对照 |
+| 协作预设（`collaborative`） | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2** / **22.23.4**；真实隔离 Host + 模拟 adapter，工具发现、步骤准入、grep、重启恢复与会话隔离 |
+| 既有审批与表格页面 | **0.2.2-rc.2、0.2.2-rc.3** | Web + Chromium；实际卡片、深浅色、窄窗、键鼠交互与官方执行契约；CUA 为测试桩 |
+| 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL，Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
 
 
-**自动检查：174 项，168 通过、6 跳过、0 失败。** 另完成隔离真实 Host、包内离线安装与旧预设升级检查；本地验收命令见[协作预设说明](docs/collaborative-preset.md#验证与维护)。
+**自动检查：179 项，173 通过、6 跳过、0 失败**（传入本机 `DSH_BIN`；未设 `DSH_BIN` 时 172 通过、7 跳过）。另完成隔离真实 Host、包内离线安装（49 文件）与旧预设升级检查；本地验收命令见[协作预设说明](docs/collaborative-preset.md#验证与维护)。
 
 安装版本范围：**`>=0.2.2-rc.1 <0.3.0-0`**。测试使用交互式 Web profile，浏览器为 Chromium；审批中的 CUA 由测试桩提供，压缩实验通过官方模块与真实模型服务运行。
 
