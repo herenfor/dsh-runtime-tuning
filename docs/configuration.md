@@ -16,7 +16,7 @@
 dsh plugin --profile web add @herenfor/dsh-tune
 ```
 
-正式发布使用 npm `latest` 标签；目标版本与实测范围见 [README](../README.md#已测版本)。确认 npm 已发布后安装，发布前可使用下面的本地源码安装方式。
+正式发布使用 npm `latest` 标签；目标版本与实测范围见 [README](../README.md#已测版本)。测试版通过 [GitHub Pre-release](https://github.com/herenfor/dsh-runtime-tuning/releases/tag/v0.2.19-beta.1) 提供独立安装包；npm 测试通道发布后，可指定 `@herenfor/dsh-tune@beta`。也可使用下面的本地源码安装方式。
 
 或者先克隆到本地，再用本地路径安装：
 

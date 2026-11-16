@@ -2,7 +2,7 @@
 
 **选择「协作」后，模型围绕你的目标组织讨论、提出方案并推进已授权工作。** 预设 ID 为 `collaborative`，与原有「标准」「调优」分别保留。
 
-本功能目前随源码候选提供。发布版本、测试环境与覆盖范围统一见 [README](../README.md#已测版本)。
+本功能随 `0.2.19-beta.1` 测试版提供，安装包见 [GitHub Pre-release](https://github.com/herenfor/dsh-runtime-tuning/releases/tag/v0.2.19-beta.1)。发布版本、测试环境与覆盖范围统一见 [README](../README.md#已测版本)。
 
 ## 怎样使用
 

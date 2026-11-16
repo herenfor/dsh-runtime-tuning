@@ -11,7 +11,12 @@ name=$(node -p 'require("./package.json").name')
 current=$(node -p 'require("./package.json").version')
 [[ "$name" = @herenfor/dsh-tune && "$current" = "$version" ]] || { echo 'Set package.json name/version before releasing.' >&2; exit 1; }
 tag="v$version"
-npm_tag=latest; [[ "$version" != *-* ]] || npm_tag=next
+npm_tag=latest
+if [[ "$version" = *-beta.* ]]; then
+  npm_tag=beta
+elif [[ "$version" = *-* ]]; then
+  npm_tag=next
+fi
 if [[ "$mode" = --local ]]; then
   [[ $(git branch --show-current) = main && -z $(git status --porcelain) ]] || { echo 'Release from a clean main checkout; commit and push first.' >&2; exit 1; }
   git fetch origin main --tags

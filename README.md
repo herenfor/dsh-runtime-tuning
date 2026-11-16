@@ -18,7 +18,7 @@ DeepSeek Harness 运行调优插件 · `@herenfor/dsh-tune`
 
 **常规功能安装即用；`tuned` 调优预设按需开启。** 压缩缓存修复在 `tuned` 中生效。
 
-**源码新增「协作」预设（`collaborative`，待发布）：** 承接用户目标与纠正、形成合理方案，保留完整 standard 能力，并加入工具发现和 grep 增强。[使用与配置 →](docs/collaborative-preset.md)
+**Beta 新增「协作」预设（`collaborative`）：** 承接用户目标与纠正、形成合理方案，保留完整 standard 能力，并加入工具发现和 grep 增强。[测试版下载 →](https://github.com/herenfor/dsh-runtime-tuning/releases/tag/v0.2.19-beta.1) · [使用与配置 →](docs/collaborative-preset.md)
 
 <a id="快速开始"></a>
 
@@ -49,7 +49,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 长任务有反馈 | 非阻塞提问、进展提醒、清单核对及等待兜底 |
 | 回答更易读 | 表格随消息列宽排版，修复部分答复被折叠的问题 |
 | 凭据多一道保护 | 检查凭据相关调用，隐藏敏感文件，给工具结果打码 |
-| 协作预设（源码候选） | 目标与方案协作、完整工具能力、`tool_search` 按需发现、准确检索 |
+| 协作预设（Beta） | 目标与方案协作、完整工具能力、`tool_search` 按需发现、准确检索 |
 | `tuned` 压缩缓存 | 沿用同模型主对话的有效推理档位，减少可避免的非缓存输入 |
 
 所有模块均可独立配置。[配置项、默认值和开关 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#配置)
@@ -84,11 +84,14 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 本次更新
 
-- **压缩缓存修复**：手动、自动压力与溢出恢复共用修复；同模型沿用有效推理档位，独立摘要模型保留自己的配置。
-- **兼容原有会话**：旧 `tuned` 预设中的官方摘要器会自动映射到修复实现，保留已有配置和会话绑定。
-- **能力不支持时回退**：继承值与显式覆盖都经过模型能力检查；并发会话分别解析，不修改共享 LLM 服务。
+**`0.2.19-beta.1` · 协作预设测试版**
 
-当前源码目标版本、实测环境集中见下表。[完整更新记录 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md)
+- **新预设「协作」**：承接用户目标、已有决定与最新纠正，形成方案并推进已授权工作；从完整 standard 组合构建。
+- **工具按需发现**：常用工具直接可用，定时任务、工作流等通过 `tool_search` 查询并从下一步启用。
+- **grep 增强**：支持内容、文件名、计数、上下文、排除和跨行，长行预览保留真实命中。
+- **临时目录修复**：位于 `/tmp` 的真实工作区继续使用原始路径，shell 与文件工具保持一致。
+
+新能力位于独立的 `collaborative` 预设，原有 `tuned` 和默认预设选择保留。测试版安装包及安装方法见 [GitHub Pre-release](https://github.com/herenfor/dsh-runtime-tuning/releases/tag/v0.2.19-beta.1)；npm 稳定安装仍使用 `latest`。[完整更新记录 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md)
 
 ## 可选：开启调优预设
 
@@ -105,18 +108,18 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 已测版本
 
-**源码候选包：`@herenfor/dsh-tune@0.2.19`（待发布）。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
+**本次测试版：`@herenfor/dsh-tune@0.2.19-beta.1`，通过 GitHub Pre-release 提供。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
 
 | 验证项目 | DSH 版本 | 环境与已验证范围 |
 | --- | --- | --- |
 | 本次压缩修复与升级 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2**；压缩、能力回退、并发与旧会话升级，另有真实服务端手动对照 |
-| 协作预设源码候选 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2**；真实隔离 Host + 模拟 adapter，工具发现、步骤准入、grep、重启恢复与会话隔离；Chromium 实际页面与工具轨迹截图 |
+| 协作预设 Beta | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2**；真实隔离 Host + 模拟 adapter，工具发现、步骤准入、grep、重启恢复与会话隔离；Chromium 实际页面与工具轨迹截图 |
 | 既有审批执行兼容 | **0.2.2-rc.2、0.2.2-rc.3** | 官方执行契约、原生决定、格式回退与批准后参数检查 |
 | 既有审批与表格页面 | **0.2.2-rc.3** | Web + Chromium；实际卡片、深浅色、窄窗及键鼠交互；CUA 为测试桩 |
 | 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL；Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
 
 
-**源码候选自动检查：174 项，168 通过、6 跳过、0 失败。** 另完成隔离真实 Host、包内离线安装与旧预设升级检查；本地验收命令见[协作预设说明](docs/collaborative-preset.md#验证与维护)。
+**自动检查：174 项，168 通过、6 跳过、0 失败。** 另完成隔离真实 Host、包内离线安装与旧预设升级检查；本地验收命令见[协作预设说明](docs/collaborative-preset.md#验证与维护)。
 
 安装版本范围：**`>=0.2.2-rc.1 <0.3.0-0`**。测试使用交互式 Web profile，浏览器为 Chromium；审批中的 CUA 由测试桩提供，压缩实验通过官方模块与真实模型服务运行。
 
