@@ -43,7 +43,8 @@ export function resolvePresetConfig(
     let next = row
     if (row.id === 'tool-use-prompt' && promptNames.has(row.name)) {
       next = { ...next, name: moduleUrl }
-    } else if (row.id === 'compaction-basic' && compactionNames.has(row.name)) {
+    } else if (row.id === 'compaction-basic' && (compactionNames.has(row.name)
+      || (typeof row.name === 'string' && /^file:/.test(row.name) && /\/(?:dsh-tune|dsh-runtime-tuning)\/plugins\/compaction-effort\.mjs$/.test(row.name)))) {
       next = { ...next, name: compactionUrl }
     }
     if (next.group === true && Array.isArray(next.config)) {

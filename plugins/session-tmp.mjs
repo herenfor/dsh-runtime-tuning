@@ -9,7 +9,7 @@
 // 换成同一个对话目录，结果里的对话目录再换回 /tmp，模型只看到一个 /tmp。只在确认换过 bwrap 的 /tmp 之后才映射。
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { recordParameterRewrite } from './approval-contract.mjs'
 import { createRecorder } from './log.mjs'
 
@@ -50,19 +50,24 @@ export function createRoots() {
 export const FILE_TOOLS = { read: ['file_path'], write: ['file_path'], edit: ['file_path'], read_image: ['file_path'], glob: ['path'], grep: ['path'], present: ['files'] }
 
 /** /tmp 或 /tmp/... 换成 dir 下的同名路径；已经在 dir 里的、别的路径原样返回。 */
-export const toSessionPath = (path, dir) =>
-  typeof path !== 'string' || path === dir || path.startsWith(`${dir}/`) ? path
-    : path === '/tmp' ? dir : path.startsWith('/tmp/') ? join(dir, path.slice(5)) : path
+export const toSessionPath = (path, dir, workspaces = []) => {
+  if (typeof path !== 'string' || path === dir || path.startsWith(`${dir}/`)) return path
+  // bwrap explicitly binds the workspace back over its private /tmp. Those paths
+  // denote host workspace files, not files created in the session's private /tmp.
+  const target = resolve(path)
+  if (workspaces.some(root => typeof root === 'string' && (target === resolve(root) || target.startsWith(resolve(root) + '/')))) return path
+  return path === '/tmp' ? dir : path.startsWith('/tmp/') ? join(dir, path.slice(5)) : path
+}
 
 /** 把文件工具参数里的 /tmp 路径换成对话目录；没有要换的返回 undefined。 */
-export function mapToolArgs(name, args, dir) {
+export function mapToolArgs(name, args, dir, workspaces = []) {
   const keys = FILE_TOOLS[name]
   if (keys === undefined || args === null || typeof args !== 'object') return undefined
   let changed = false
   const next = { ...args }
   for (const key of keys) {
     const value = args[key]
-    const mapped = Array.isArray(value) ? value.map((v) => toSessionPath(v, dir)) : toSessionPath(value, dir)
+    const mapped = Array.isArray(value) ? value.map((v) => toSessionPath(v, dir, workspaces)) : toSessionPath(value, dir, workspaces)
     if (Array.isArray(value) ? mapped.some((v, i) => v !== value[i]) : mapped !== value) { next[key] = mapped; changed = true }
   }
   return changed ? next : undefined
@@ -136,7 +141,9 @@ export function apply(ctx, config = {}) {
       if (c.fileTools && rebound && !missed && typeof sessionId === 'string' && modeOf(sessionId) === 'workspace-write') {
         dir = dirFor(sessionId)
         const before = exec.arguments
-        const mapped = mapToolArgs(exec.name, before, dir)
+        const workspaces = [exec.agent?.session?.header?.cwd]
+        try { const cwd = await ctx.workingDirectory?.ensure?.(exec.agent, exec.signal); if (cwd) workspaces.push(cwd) } catch {}
+        const mapped = mapToolArgs(exec.name, before, dir, workspaces)
         if (mapped === undefined) dir = undefined
         else {
           exec.arguments = mapped

@@ -10,6 +10,17 @@ process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'session-tmp-home-'))
 const { apply, createRoots, mapToolArgs, rebindTmp, sweepStale, toSessionPath, unmapResult } = await import('../plugins/session-tmp.mjs')
 const linuxOnly = { skip: process.platform !== 'linux' && 'bwrap /tmp rebinding is Linux-only' }
 
+test('absolute workspace paths under /tmp stay host paths while other /tmp paths remain session-private', () => {
+  const dir = '/tmp/dsh-session-tmp-1000/session'
+  const workspaces = ['/tmp/project']
+  assert.equal(toSessionPath('/tmp/project/file.txt', dir, workspaces), '/tmp/project/file.txt')
+  assert.equal(toSessionPath('/tmp/project/sub/../file.txt', dir, workspaces), '/tmp/project/sub/../file.txt')
+  assert.equal(toSessionPath('/tmp/project-other/file.txt', dir, workspaces), dir + '/project-other/file.txt')
+  assert.equal(toSessionPath('/tmp/project/../outside', dir, workspaces), dir + '/outside')
+  assert.equal(mapToolArgs('grep', { path: '/tmp/project' }, dir, workspaces), undefined)
+  assert.equal(mapToolArgs('read', { file_path: '/tmp/scratch.txt' }, dir, workspaces).file_path, dir + '/scratch.txt')
+})
+
 test('rebindTmp 只换 -- 之前的 --tmpfs /tmp；没有时返回 undefined', () => {
   const argv = ['bwrap', '--ro-bind', '/', '/', '--tmpfs', '/tmp', '--bind', '/w', '/w', '--', 'bash', '-c', 'echo --tmpfs /tmp']
   assert.deepEqual(rebindTmp(argv, '/s'), ['bwrap', '--ro-bind', '/', '/', '--bind', '/s', '/tmp', '--bind', '/w', '/w', '--', 'bash', '-c', 'echo --tmpfs /tmp'])

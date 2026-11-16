@@ -16,7 +16,9 @@ DeepSeek Harness 运行调优插件 · `@herenfor/dsh-tune`
 
 慢命令放到后台，提问后继续处理其他工作，长时间沉默时提醒汇报，结束前核对任务清单。审批卡和聊天表格也更容易阅读。
 
-**常规功能安装即用；`tuned` 调优预设按需开启。** 本次新增的压缩缓存修复在 `tuned` 中生效。
+**常规功能安装即用；`tuned` 调优预设按需开启。** 压缩缓存修复在 `tuned` 中生效。
+
+**源码新增「协作」预设（`collaborative`，待发布）：** 承接用户目标与纠正、形成合理方案，保留完整 standard 能力，并加入工具发现和 grep 增强。[使用与配置 →](docs/collaborative-preset.md)
 
 <a id="快速开始"></a>
 
@@ -47,6 +49,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 长任务有反馈 | 非阻塞提问、进展提醒、清单核对及等待兜底 |
 | 回答更易读 | 表格随消息列宽排版，修复部分答复被折叠的问题 |
 | 凭据多一道保护 | 检查凭据相关调用，隐藏敏感文件，给工具结果打码 |
+| 协作预设（源码候选） | 目标与方案协作、完整工具能力、`tool_search` 按需发现、准确检索 |
 | `tuned` 压缩缓存 | 沿用同模型主对话的有效推理档位，减少可避免的非缓存输入 |
 
 所有模块均可独立配置。[配置项、默认值和开关 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#配置)
@@ -102,17 +105,18 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 已测版本
 
-**源码目标包：`@herenfor/dsh-tune@0.2.18`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
+**源码候选包：`@herenfor/dsh-tune@0.2.19`（待发布）。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
 
 | 验证项目 | DSH 版本 | 环境与已验证范围 |
 | --- | --- | --- |
 | 本次压缩修复与升级 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2**；压缩、能力回退、并发与旧会话升级，另有真实服务端手动对照 |
+| 协作预设源码候选 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2**；真实隔离 Host + 模拟 adapter，工具发现、步骤准入、grep、重启恢复与会话隔离；Chromium 实际页面与工具轨迹截图 |
 | 既有审批执行兼容 | **0.2.2-rc.2、0.2.2-rc.3** | 官方执行契约、原生决定、格式回退与批准后参数检查 |
 | 既有审批与表格页面 | **0.2.2-rc.3** | Web + Chromium；实际卡片、深浅色、窄窗及键鼠交互；CUA 为测试桩 |
 | 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL；Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
 
 
-**本次自动检查：160 项，154 通过、6 跳过、0 失败。** 同时完成打包离线安装和旧预设升级检查。
+**源码候选自动检查：174 项，168 通过、6 跳过、0 失败。** 另完成隔离真实 Host、包内离线安装与旧预设升级检查；本地验收命令见[协作预设说明](docs/collaborative-preset.md#验证与维护)。
 
 安装版本范围：**`>=0.2.2-rc.1 <0.3.0-0`**。测试使用交互式 Web profile，浏览器为 Chromium；审批中的 CUA 由测试桩提供，压缩实验通过官方模块与真实模型服务运行。
 
@@ -138,6 +142,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 npm test
 npm run check:package
 npm run check:preset-upgrade -- /path/to/dsh
+npm run check:collaborative -- /path/to/dsh /outside/repository/results
 ```
 
 仓库名保留为 `dsh-runtime-tuning`，npm 包名为 `@herenfor/dsh-tune`。[发布命令与版本管理 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/publishing.md)

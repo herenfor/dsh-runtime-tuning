@@ -129,4 +129,10 @@ test('upgrade keeps the preset definition and anchors its own child independentl
   }
   const custom = { plugins: [{ id: 'tool-use-prompt', name: 'user-replacement' }] }
   assert.equal(resolvePresetConfig(custom).plugins[0], custom.plugins[0])
+  const saved = { plugins: [{ id: 'compaction-basic', name: 'file:///old/node_modules/@herenfor/dsh-tune/plugins/compaction-effort.mjs', config: { inheritReasoningEffort: false } }] }
+  const updated = resolvePresetConfig(saved)
+  assert.notEqual(updated.plugins[0].name, saved.plugins[0].name)
+  assert.deepEqual(updated.plugins[0].config, saved.plugins[0].config)
+  const customSummary = { plugins: [{ id: 'compaction-basic', name: 'file:///custom/compaction-effort.mjs' }] }
+  assert.equal(resolvePresetConfig(customSummary).plugins[0], customSummary.plugins[0])
 })

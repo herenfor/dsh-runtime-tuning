@@ -1,5 +1,7 @@
 # 安装与配置
 
+新增的 `collaborative` 协作预设、工具发现与 grep 增强，见[协作预设配置](collaborative-preset.md)。它保留完整 standard 组合；原 `tuned` 配置继续独立使用。
+
 ## 使用环境
 
 面向有人使用的交互式 Web / Desktop（包括 WSL 桥接端）。声明安装范围由 `package.json` 的 `engines.dsh` 给出；**已测版本、环境及未覆盖范围统一见 [README 的版本表](../README.md#已测版本)**。升级宿主后，依赖内部接口的能力需要重新检查。
@@ -236,6 +238,8 @@ DSH 的模型几乎只在最后才写正文，干活时不说话：近期 17 个
 子插件会写诊断日志到 `$DSH_HOME/logs/dsh-runtime-tuning/`（默认 `~/.dsh/logs/dsh-runtime-tuning/`），每个子插件一个 JSON lines 文件。日志只记录事件、规则、秒数、会话 id 和状态，不记录命令全文或对话内容。
 
 ## 卸载
+
+先将仍在使用 `tuned` 或 `collaborative` 的任务交接到标准预设的新会话。DSH 已开始的会话不能直接切换预设；如果还需要继续原会话，请保留对应预设和插件。卸载会同时移除这些预设。
 
 ```bash
 dsh plugin --profile web remove @herenfor/dsh-tune
