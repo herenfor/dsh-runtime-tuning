@@ -916,5 +916,9 @@ test('T9: FindBarOverlay supports drag positioning, viewport clamping, localStor
   assert.equal(vdom.props.style, undefined)
   assert.equal(readSavedOverlayPosition(), null)
 
+  // Case-toggle hover CSS must never override pressed blue state
+  assert.match(CLIENT_SRC, /\.TCF_btn:enabled:not\(\[aria-pressed="true"\]\):hover/)
+  assert.match(CLIENT_SRC, /\.TCF_btn\[aria-pressed="true"\]:enabled:hover/)
+
   ctrl.dispose()
 })
