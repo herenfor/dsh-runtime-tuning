@@ -680,6 +680,8 @@ test('T6: DOM locate (beforematch/TreeWalker/Highlight/scroll), React UI/IME/Esc
   assert.equal(hiddenWrap.hasAttribute('hidden'), false, 'beforematch revealed hidden ancestor')
   assert.ok(dom.CSS.highlights.has('dsh-tune-find-current'), 'Range verified & highlighted')
   assert.equal(dom.CSS.highlights.get('dsh-tune-find-current').ranges[0].toString(), 'targetNeedle')
+  controller.recomputeLocal()
+  assert.ok(dom.CSS.highlights.has('dsh-tune-find-current'), 'current highlight survives recomputeLocal / loadOlder prepend')
 
   // Render Overlay & verify IME + Enter + Escape stopPropagation + focus return
   const vdom = react._render(overlayReg.Comp, { controller })
@@ -695,6 +697,12 @@ test('T6: DOM locate (beforematch/TreeWalker/Highlight/scroll), React UI/IME/Esc
   inputNode.props.onKeyDown({ key: 'Escape', nativeEvent: {}, preventDefault() { escPrevented = true }, stopPropagation() { escStopped = true } })
   assert.equal(escPrevented && escStopped && !windowSawEsc, true, 'Escape closes bar and blocks StopSequence')
   assert.equal(dom.doc.activeElement, triggerBtn, 'focus returned to still-mounted trigger')
+
+  // Global capture Escape also closes Find Bar even when focus moved out to mainRoot
+  controller.openFind(triggerBtn)
+  assert.equal(dom.win.dispatchKeyDown({ key: 'Escape', code: 'Escape', target: mainRoot }).defaultPrevented, true)
+  assert.equal(controller.getSnapshot().open, false)
+  assert.equal(windowSawEsc, false)
 
   // Cleanup / hot unload
   for (const fn of cleanups) if (typeof fn === 'function') fn()

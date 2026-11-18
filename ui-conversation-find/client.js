@@ -1117,6 +1117,19 @@ window.__ModuleLoader__.load({
         if (!open || !query || !activeSessionId || !doc) { hl.clear(); return }
         const mainRoot = resolveMainConversationRoot(doc, activeSessionId)
         if (!mainRoot) { hl.clear(); return }
+        if (!currentRange && !fallbackEl && navigated && selectedIndex >= 0 && hits[selectedIndex]) {
+          const active = hits[selectedIndex]
+          if (!active.excerpt) active.excerpt = cache.hitExcerpts.get(active.hitKey) || null
+          const targets = findTargetNodeElements(mainRoot.flow, active)
+          const sig = `${active.nodeKey || ''}|${active.groupPart || ''}`
+          const blockTotal = blockRenderCounts.get(sig) || 1
+          for (const el of targets) {
+            if (el.closest?.('[hidden]')) continue
+            const rng = pickVerifiedHitRange(el, active, query, caseSensitive, blockTotal)
+            if (rng) { currentRange = rng; break }
+          }
+          if (!currentRange && fallbackNotice && targets[0] && !targets[0].closest?.('[hidden]')) fallbackEl = targets[0]
+        }
         const scroller = findMainScroller(mainRoot.root, mainRoot.flow)
         const visibleRanges = collectVisibleBlockRanges(mainRoot.flow, scroller, query, caseSensitive)
         hl.apply(visibleRanges, currentRange, fallbackEl)
@@ -1697,15 +1710,16 @@ window.__ModuleLoader__.load({
                     : ''
 
         let scanBtn = null
+        const runScanAct = (fn) => () => { fn(); inputRef.current?.focus?.({ preventScroll: true }) }
         if (snap.query && snap.hasRemote) {
           if (snap.scanState === 'scanning') {
-            scanBtn = h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-action': 'pause', onClick: () => controller.pauseScan() }, t('pause'))
+            scanBtn = h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-action': 'pause', onClick: runScanAct(() => controller.pauseScan()) }, t('pause'))
           } else if (snap.scanState === 'error') {
-            scanBtn = h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-action': 'retry', onClick: () => controller.startOrResumeScan() }, t('retry'))
+            scanBtn = h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-action': 'retry', onClick: runScanAct(() => controller.startOrResumeScan()) }, t('retry'))
           } else if (snap.scanState === 'paused' && (snap.remoteHasMore || snap.hasEvictedPending)) {
-            scanBtn = h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-action': 'resume', onClick: () => controller.startOrResumeScan() }, t('resume'))
+            scanBtn = h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-action': 'resume', onClick: runScanAct(() => controller.startOrResumeScan()) }, t('resume'))
           } else if (snap.remoteHasMore || snap.hasEvictedPending) {
-            scanBtn = h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-action': 'scan', onClick: () => controller.startOrResumeScan() }, t('searchHistory'))
+            scanBtn = h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-action': 'scan', onClick: runScanAct(() => controller.startOrResumeScan()) }, t('searchHistory'))
           }
         }
 
@@ -1905,7 +1919,29 @@ window.__ModuleLoader__.load({
         })
       }
 
+      let escAttached = false
+      const onGlobalEscape = (e) => {
+        if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.altKey || e.ctrlKey || e.metaKey) return
+        if (!controller.getSnapshot().open) return
+        if (e.target?.closest?.('[role="dialog"], [aria-modal="true"]') || (typeof document !== 'undefined' && document.querySelector?.('[role="dialog"][aria-modal="true"], dialog[open]'))) return
+        e.preventDefault()
+        e.stopPropagation()
+        controller.closeFind(true)
+      }
+      const syncEsc = () => {
+        if (typeof window === 'undefined') return
+        const want = controller.getSnapshot().open
+        if (want === escAttached) return
+        escAttached = want
+        if (want) window.addEventListener('keydown', onGlobalEscape, true)
+        else window.removeEventListener('keydown', onGlobalEscape, true)
+      }
+      syncEsc()
+      const unsubEsc = controller.subscribe(syncEsc)
+
       ctx.effect(() => () => {
+        if (escAttached && typeof window !== 'undefined') window.removeEventListener('keydown', onGlobalEscape, true)
+        unsubEsc()
         stopList?.()
         stopPanel?.()
         controller.dispose()
