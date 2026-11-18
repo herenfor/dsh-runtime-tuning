@@ -683,12 +683,15 @@ test('T6: DOM locate (beforematch/TreeWalker/Highlight/scroll), React UI/IME/Esc
   assert.equal(Object.is(controller.getSnapshot(), controller.getSnapshot()), true, 'getSnapshot preserves reference identity for React useSyncExternalStore')
   triggerBtn.focus(); controller.closeFind(false); controller.openFind(triggerBtn)
   controller.setQuery('targetNeedle')
+  assert.equal(controller.getSnapshot().hits.length, 0, 'default body-only scope skips reasoning text')
+  controller.toggleScopeKey('reasoning')
   await controller.navigate(1)
   assert.equal(hiddenWrap.hasAttribute('hidden'), false, 'beforematch revealed hidden ancestor')
   assert.ok(dom.CSS.highlights.has('dsh-tune-find-current'), 'Range verified & highlighted')
   assert.equal(dom.CSS.highlights.get('dsh-tune-find-current').ranges[0].toString(), 'targetNeedle')
   controller.recomputeLocal()
   assert.ok(dom.CSS.highlights.has('dsh-tune-find-current'), 'current highlight survives recomputeLocal / loadOlder prepend')
+  controller.resetScope()
 
   // Render Overlay & verify IME + Enter + Escape stopPropagation + focus return
   const vdom = react._render(overlayReg.Comp, { controller })
@@ -746,6 +749,10 @@ test('T7: tool disclosure auto-expands or shows excerpt fallback, session switch
 
   ctrl.openFind()
   ctrl.setQuery('toolOutput')
+  ctrl.recomputeLocal()
+  assert.equal(ctrl.getSnapshot().hits.length, 0, 'default body-only scope skips tool output')
+  assert.equal(clicked, false, 'tool disclosure stays untouched until tool scope enabled')
+  ctrl.toggleScopeKey('tool')
   ctrl.navigate(1)
   await new Promise((r) => setTimeout(r, 220))
   assert.equal(clicked, true, 'expanded collapsed tool disclosure once')
@@ -919,6 +926,108 @@ test('T9: FindBarOverlay supports drag positioning, viewport clamping, localStor
   // Case-toggle hover CSS must never override pressed blue state
   assert.match(CLIENT_SRC, /\.TCF_btn:enabled:not\(\[aria-pressed="true"\]\):hover/)
   assert.match(CLIENT_SRC, /\.TCF_btn\[aria-pressed="true"\]:enabled:hover/)
+
+  ctrl.dispose()
+})
+
+test('T10: defaults to body-only search (excludes reasoning/tool/command/etc.) and exposes secondary/context scope menu', () => {
+  const dom = createMockDom()
+  const react = createReactStub()
+  const mod = loadClientModule({ dom, react })
+  const { createFindController, createFindComponents, DEFAULT_SEARCH_SCOPE, SCOPE_EXTRA_KEYS, conversationContextKey } = mod.__internals
+
+  // Build visible DOM blocks across user, assistant reasoning+response, tool, and command
+  const mainRoot = dom.el('div', { 'data-conversation-session': 's1' })
+  const scroller = dom.el('div', { 'data-conversation-scroll': 'true' })
+  const flow = dom.el('div', { 'data-chat-flow': 'true' })
+  const mkNode = (kind, id, part, txt) => {
+    const el = dom.el('div', { 'data-chat-node-key': conversationContextKey(kind, id), ...(part ? { 'data-chat-group-part': part } : {}) })
+    el.appendChild(dom.text(txt))
+    return el
+  }
+  flow.appendChild(mkNode('input-message', 'u1', null, 'user prose tokenZ'))
+  flow.appendChild(mkNode('assistant-step', '1:1', 'reasoning', 'hidden reasoning tokenZ'))
+  flow.appendChild(mkNode('assistant-step', '1:1', 'response', 'reply prose tokenZ'))
+  flow.appendChild(mkNode('tool-call', 'tc1', null, 'bash echo tokenZ'))
+  flow.appendChild(mkNode('command', 'cmd1', null, 'cmd output tokenZ'))
+  scroller.appendChild(flow); mainRoot.appendChild(scroller); dom.body.appendChild(mainRoot)
+
+  const entries = [
+    { type: 'event', event: { seq: 0, type: 'turn/start', data: { turn: 1 } } },
+    { type: 'event', event: { seq: 1, type: 'step/start', data: { turn: 1, step: 1 } } },
+    { type: 'event', event: { seq: 2, type: 'user/message', surfaceOp: 'append', data: { id: 'u1', source: { kind: 'user' }, content: [{ type: 'text', text: 'user prose tokenZ' }] } } },
+    { type: 'event', event: { seq: 3, type: 'user/message', surfaceOp: 'append', data: { id: 'ctx1', source: { kind: 'schedule' }, content: [{ type: 'text', text: 'schedule tokenZ' }] } } },
+    { type: 'event', event: { seq: 4, type: 'developer/message', surfaceOp: 'append', data: { message: { id: 'd1', content: [{ type: 'text', text: 'dev context tokenZ' }] } } } },
+    { type: 'event', event: { seq: 5, type: 'assistant/message', surfaceOp: 'append', data: { turn: 1, step: 1, message: { id: 'a1', content: [{ type: 'reasoning', text: 'hidden reasoning tokenZ' }, { type: 'text', text: 'reply prose tokenZ' }] } } } },
+    { type: 'event', event: { seq: 6, type: 'tool/call', data: { callId: 'tc1', turn: 1, step: 1, name: 'bash', arguments: { cmd: 'echo tokenZ' } } } },
+    { type: 'event', event: { seq: 7, type: 'tool/result', surfaceOp: 'append', data: { message: { source: { callId: 'tc1' }, content: [{ type: 'text', text: 'tool result tokenZ' }] } } } },
+    { type: 'event', event: { seq: 8, type: 'command/done', data: { commandId: 'cmd1', text: 'cmd output tokenZ' } } },
+    { type: 'event', event: { seq: 9, type: 'compaction/summary', data: { compactionId: 'cmp1', summary: [{ type: 'text', text: 'compaction tokenZ' }] } } },
+    { type: 'event', event: { seq: 10, type: 'todo/write', data: { todos: [{ id: 'td1', content: 'todo tokenZ' }] } } },
+    { type: 'event', event: { seq: 11, type: 'turn/end', data: { turn: 1, reason: { kind: 'error', error: { message: 'error tokenZ' } } } } },
+  ]
+  const evSource = createObservable({ entries, hasMore: false, revision: 1 })
+  const sessObs = createObservable({ sessionId: 's1', blank: false, removed: false, loadingOlder: false, hasMore: false })
+  const list = createObservable({ byId: { s1: { id: 's1', retainedBy: { mainView: 1 } } } })
+  const sessions = { list, binding: (id) => (id === 's1' ? { sessionId: 's1', session: sessObs, eventSource: evSource } : null) }
+  const ctrl = createFindController({ sessions, layout: { panelInfo: createObservable({ activePanelId: null }) }, doc: dom.doc })
+
+  // Default scope matches ONLY user + response (2 hits) and highlights ONLY those 2 DOM nodes
+  ctrl.openFind()
+  ctrl.setQuery('tokenZ')
+  ctrl.recomputeLocal()
+  let snap = ctrl.getSnapshot()
+  assert.equal(snap.scope.body, true)
+  for (const k of SCOPE_EXTRA_KEYS) assert.equal(snap.scope[k], false)
+  assert.equal(snap.hasCustomScope, false)
+  assert.deepEqual(Array.from(snap.hits.map((h) => h.sourceKind)), ['user', 'response'])
+  assert.equal(dom.CSS.highlights.get('dsh-tune-find-match').ranges.length, 2)
+
+  // Secondary menu opens via scope button or bar right-click (context menu), NOT input right-click
+  const ui = createFindComponents(ctrl)
+  let vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
+  assert.equal(findInVdom(vdom, (n) => n.props?.['data-tune-find-scope-menu'] === 'true'), null)
+
+  const barNode = findInVdom(vdom, (n) => n.props?.className === 'TCF_bar')
+  let ctxPrevented = false
+  const inputTarget = dom.el('input')
+  barNode.props.onContextMenu({ target: inputTarget, preventDefault() { ctxPrevented = true }, stopPropagation() {} })
+  assert.equal(ctxPrevented, false, 'input preserves native context menu')
+  assert.equal(ctrl.getSnapshot().scopeMenuOpen, false)
+
+  const btnTarget = dom.el('button')
+  barNode.props.onContextMenu({ target: btnTarget, preventDefault() { ctxPrevented = true }, stopPropagation() {} })
+  assert.equal(ctxPrevented, true, 'bar context menu opens scope secondary menu')
+  assert.equal(ctrl.getSnapshot().scopeMenuOpen, true)
+
+  vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
+  const menuNode = findInVdom(vdom, (n) => n.props?.['data-tune-find-scope-menu'] === 'true')
+  assert.ok(menuNode)
+
+  // Toggle reasoning & tool via menu checkboxes -> matches increase & badge activates
+  const reasonOpt = findInVdom(vdom, (n) => n.props?.['data-tune-find-scope-opt'] === 'reasoning')
+  const toolOpt = findInVdom(vdom, (n) => n.props?.['data-tune-find-scope-opt'] === 'tool')
+  reasonOpt.props.onClick()
+  toolOpt.props.onClick()
+  snap = ctrl.getSnapshot()
+  assert.equal(snap.hasCustomScope, true)
+  assert.deepEqual(Array.from(snap.hits.map((h) => h.sourceKind)), ['user', 'reasoning', 'response', 'tool', 'tool'])
+  assert.equal(dom.CSS.highlights.get('dsh-tune-find-match').ranges.length, 4)
+
+  // First Escape closes only secondary menu; second Escape closes find bar
+  let esc1 = false
+  vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
+  vdom.props.onKeyDown({ key: 'Escape', nativeEvent: {}, preventDefault() { esc1 = true }, stopPropagation() {} })
+  assert.equal(esc1, true)
+  assert.equal(ctrl.getSnapshot().scopeMenuOpen, false)
+  assert.equal(ctrl.getSnapshot().open, true)
+
+  // Select All matches every kind; Reset restores body-only default
+  ctrl.selectAllScope()
+  assert.equal(ctrl.getSnapshot().hits.length, 11)
+  ctrl.resetScope()
+  assert.equal(ctrl.getSnapshot().hasCustomScope, false)
+  assert.deepEqual(Array.from(ctrl.getSnapshot().hits.map((h) => h.sourceKind)), ['user', 'response'])
 
   ctrl.dispose()
 })

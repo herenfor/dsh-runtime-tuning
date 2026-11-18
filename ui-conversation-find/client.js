@@ -14,6 +14,17 @@ window.__ModuleLoader__.load({
     const MAX_HISTORY_CACHE_BYTES = 8 * 1024 * 1024
     const DEFAULT_PAGE_OPTIONS = { maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }
     const DEBOUNCE_MS = 150
+    const SCOPE_EXTRA_KEYS = ['reasoning', 'tool', 'command', 'context', 'compaction', 'todo', 'error']
+    const DEFAULT_SEARCH_SCOPE = Object.freeze({
+      body: true,
+      reasoning: false,
+      tool: false,
+      command: false,
+      context: false,
+      compaction: false,
+      todo: false,
+      error: false,
+    })
     const SHORTCUT_DEFAULTS = {
       'desktop:windows': { code: 'KeyF', modifiers: ['primary'] },
       'desktop:macos': { code: 'KeyF', modifiers: ['primary'] },
@@ -45,6 +56,12 @@ window.__ModuleLoader__.load({
         fallbackHidden: '当前视图未展示此内容',
         relocate: '重新定位',
         dragHandle: '拖动浮窗位置（双击重置）',
+        scopeBtn: '搜索范围（默认仅正文；右键浮窗亦可打开）',
+        scopeMenuTitle: '搜索范围',
+        scopeBody: '正文（提问与回复）',
+        scopeDefaultTag: '默认',
+        scopeReset: '仅搜正文',
+        scopeAll: '全部范围',
         noSession: '当前无打开的对话',
         src_user: '用户输入',
         src_steering: '插话消息',
@@ -80,6 +97,12 @@ window.__ModuleLoader__.load({
         fallbackHidden: 'Content not visible in current view',
         relocate: 'Relocate',
         dragHandle: 'Drag to move (double-click to reset)',
+        scopeBtn: 'Search scope (body text only by default; right-click bar)',
+        scopeMenuTitle: 'Search scope',
+        scopeBody: 'Conversation body (user & replies)',
+        scopeDefaultTag: 'Default',
+        scopeReset: 'Body only',
+        scopeAll: 'Select all',
         noSession: 'No active conversation',
         src_user: 'User message',
         src_steering: 'Steering',
@@ -106,10 +129,25 @@ window.__ModuleLoader__.load({
 .TCF_count{flex:none;font-size:12px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap}
 .TCF_btn{display:inline-flex;flex:none;align-items:center;justify-content:center;min-width:26px;height:26px;padding:0 5px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
 .TCF_btn:enabled:not([aria-pressed="true"]):hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.12));color:var(--dsw-alias-label-primary)}
-.TCF_btn:focus-visible,.TCF_drag:focus-visible,.TCF_link:focus-visible,.TCF_trig:focus-visible{outline:1px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#3b82f6));outline-offset:1px}
+.TCF_btn:focus-visible,.TCF_drag:focus-visible,.TCF_link:focus-visible,.TCF_trig:focus-visible,.TCF_menuItem:focus-visible{outline:1px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#3b82f6));outline-offset:1px}
 .TCF_btn:disabled{opacity:.42;cursor:default}
 .TCF_btn[aria-pressed="true"]{background:var(--dsw-static-deepseek-500,var(--dsw-alias-state-business-primary,#3b82f6));color:#fff;font-weight:600}
 .TCF_btn[aria-pressed="true"]:enabled:hover,.TCF_btn[aria-pressed="true"]:enabled:active{background:var(--dsw-static-blue-600,#2563eb);color:#fff}
+.TCF_scopeBtn{position:relative}
+.TCF_scopeBtn[aria-expanded="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.12))}
+.TCF_scopeBtn[data-custom-scope="true"],.TCF_scopeBtn[data-custom-scope="true"]:enabled:hover{color:var(--dsw-static-deepseek-500,var(--dsw-alias-state-business-primary,#3b82f6))}
+.TCF_dot{position:absolute;top:3px;right:3px;width:5px;height:5px;border-radius:99px;background:var(--dsw-static-deepseek-500,var(--dsw-alias-state-business-primary,#3b82f6))}
+.TCF_menu{pointer-events:auto;position:absolute;right:0;top:calc(100% + 6px);min-width:228px;max-width:calc(100vw - 32px);max-height:min(360px,calc(100vh - 80px));overflow-y:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:10px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#fff));color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.22));box-shadow:0 10px 30px rgba(0,0,0,.22);font-size:12px;line-height:18px;z-index:230}
+.TCF_menu[data-placement="above"]{top:auto;bottom:calc(100% + 6px)}
+.TCF_menuHead{padding:2px 8px 4px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-tertiary);user-select:none}
+.TCF_menuSep{height:1px;margin:3px 4px;background:var(--dsw-alias-border-l2,rgba(128,128,128,.16))}
+.TCF_menuItem{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:5px 8px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:12px;text-align:left;cursor:pointer}
+.TCF_menuItem:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.12))}
+.TCF_chk{display:inline-flex;flex:none;align-items:center;justify-content:center;width:14px;height:14px;border-radius:4px;border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.45));background:transparent;color:#fff;box-sizing:border-box}
+.TCF_menuItem[aria-checked="true"] .TCF_chk{border-color:var(--dsw-static-deepseek-500,var(--dsw-alias-state-business-primary,#3b82f6));background:var(--dsw-static-deepseek-500,var(--dsw-alias-state-business-primary,#3b82f6))}
+.TCF_menuLabel{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.TCF_menuTag{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+.TCF_menuFoot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:3px;padding:4px 4px 1px;border-top:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.16))}
 .TCF_meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);min-width:0}
 .TCF_status{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .TCF_actions{display:flex;align-items:center;gap:6px;flex:none}
@@ -138,6 +176,38 @@ window.__ModuleLoader__.load({
     }
 
     const conversationContextKey = (kind, id) => `${kind.length}:${kind}${id}`
+    const normalizeSearchScope = (raw) => {
+      const out = { ...DEFAULT_SEARCH_SCOPE }
+      if (raw && typeof raw === 'object') {
+        if (typeof raw.body === 'boolean') out.body = raw.body
+        for (const k of SCOPE_EXTRA_KEYS) if (typeof raw[k] === 'boolean') out[k] = raw[k]
+      }
+      return out
+    }
+    const isCustomScope = (scope) => !scope?.body || SCOPE_EXTRA_KEYS.some((k) => Boolean(scope?.[k]))
+    const resolveEnabledSourceKinds = (scope) => {
+      const s = normalizeSearchScope(scope)
+      const kinds = new Set()
+      if (s.body) { kinds.add('user'); kinds.add('response') }
+      for (const k of SCOPE_EXTRA_KEYS) if (s[k]) kinds.add(k)
+      return kinds
+    }
+    const resolveExcludedGroupParts = (enabledKinds) => {
+      if (!enabledKinds) return null
+      const excluded = new Set()
+      if (!enabledKinds.has('reasoning')) excluded.add('reasoning')
+      if (!enabledKinds.has('response')) excluded.add('response')
+      return excluded.size ? excluded : null
+    }
+    const buildAllowedDomTargets = (hitsList) => {
+      const targets = new Set()
+      for (const h of hitsList || []) {
+        if (!h?.nodeKey) continue
+        targets.add(h.nodeKey)
+        targets.add(`${h.nodeKey}|${h.groupPart || ''}`)
+      }
+      return targets
+    }
     const isReplacementOp = (op) => op !== undefined && op !== 'append'
     const isAppendSurface = (event) => Boolean(event) && !isReplacementOp(event.surfaceOp)
     const isCompactCheckpoint = (event) => event?.type === 'user/message'
@@ -504,7 +574,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const matchItems = (items, query, caseSensitive, includeExcerpts = true) => {
+    const matchItems = (items, query, caseSensitive, includeExcerpts = true, sourceKinds = null) => {
       const rx = compileLiteralRegex(query, caseSensitive)
       if (!rx) return []
       const hits = []
@@ -514,6 +584,8 @@ window.__ModuleLoader__.load({
         for (let fi = 0; fi < item.fields.length; fi++) {
           const f = item.fields[fi]
           if (!f || typeof f.text !== 'string' || !f.text) continue
+          const srcKind = f.sourceKind || item.sourceKind || 'response'
+          if (sourceKinds && !sourceKinds.has(srcKind)) continue
           const nodeKey = f.overrideNodeKey || baseNodeKey
           const groupPart = f.groupPart || null
           const blockSig = nodeKey ? `${nodeKey}|${groupPart || ''}` : null
@@ -688,7 +760,7 @@ window.__ModuleLoader__.load({
 
     const yieldThread = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-    const computeCombinedMatches = (cache, liveEntries, query, caseSensitive, selectedHitKey) => {
+    const computeCombinedMatches = (cache, liveEntries, query, caseSensitive, selectedHitKey, sourceKinds = null) => {
       if (!query) return { hits: [], evictedPending: false }
       const { minSeq: liveMin, events: liveEvents, transients } = durableSeqBounds(liveEntries)
       const allBoundaries = []
@@ -716,7 +788,7 @@ window.__ModuleLoader__.load({
       activeRaw.push(...liveExtracted.rawItems)
       const items = assembleSearchableItems(allBoundaries, activeRaw, transients)
       const { turnStartSeqs, spans } = foldBoundaries(allBoundaries)
-      const freshHits = matchItems(items, query, caseSensitive, true)
+      const freshHits = matchItems(items, query, caseSensitive, true, sourceKinds)
       for (const h of evictedHits) {
         const coord = resolveTurnAt(h.seq, h.turn, spans, turnStartSeqs)
         h.turn = coord.turn ?? h.turn
@@ -726,24 +798,32 @@ window.__ModuleLoader__.load({
       const merged = [...evictedHits, ...freshHits].sort((a, b) => a.seq - b.seq || a.fieldOrder - b.fieldOrder || a.offset - b.offset)
       return { hits: merged, evictedPending, turnStartSeqs, spans }
     }
-    const isExcludedTextAncestor = (node, rootEl) => {
+    const isExcludedTextAncestor = (node, rootEl, excludedGroupParts = null) => {
       let cur = node.parentElement
       while (cur && cur !== rootEl) {
         const tag = cur.tagName
         if (tag === 'BUTTON' || tag === 'SVG' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return true
         if (cur.hasAttribute('hidden') || cur.getAttribute('aria-hidden') === 'true') return true
         if (cur.hasAttribute('data-text-interaction-surface') || cur.hasAttribute('data-chat-node-key')) return true
+        if (excludedGroupParts && excludedGroupParts.size) {
+          const gp = cur.getAttribute?.('data-chat-group-part')
+          if (gp && excludedGroupParts.has(gp)) return true
+        }
         cur = cur.parentElement
       }
       return false
     }
 
-    const collectBlockTextSegments = (rootEl) => {
+    const collectBlockTextSegments = (rootEl, excludedGroupParts = null) => {
       if (!rootEl || typeof document === 'undefined' || typeof document.createTreeWalker !== 'function') {
         return { text: '', segments: [] }
       }
+      if (excludedGroupParts && excludedGroupParts.size) {
+        const rootPart = rootEl.getAttribute?.('data-chat-group-part')
+        if (rootPart && excludedGroupParts.has(rootPart)) return { text: '', segments: [] }
+      }
       const walker = document.createTreeWalker(rootEl, 4 /* NodeFilter.SHOW_TEXT */, {
-        acceptNode: (n) => (isExcludedTextAncestor(n, rootEl) ? 2 /* FILTER_REJECT */ : 1 /* FILTER_ACCEPT */),
+        acceptNode: (n) => (isExcludedTextAncestor(n, rootEl, excludedGroupParts) ? 2 /* FILTER_REJECT */ : 1 /* FILTER_ACCEPT */),
       })
       const segments = []
       let joined = ''
@@ -786,10 +866,10 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const matchRangesInBlock = (rootEl, query, caseSensitive) => {
+    const matchRangesInBlock = (rootEl, query, caseSensitive, excludedGroupParts = null) => {
       const rx = compileLiteralRegex(query, caseSensitive)
       if (!rx) return []
-      const { text, segments } = collectBlockTextSegments(rootEl)
+      const { text, segments } = collectBlockTextSegments(rootEl, excludedGroupParts)
       if (!text) return []
       const out = []
       let m
@@ -807,8 +887,8 @@ window.__ModuleLoader__.load({
       return out
     }
 
-    const pickVerifiedHitRange = (rootEl, hit, query, caseSensitive, blockHitTotal) => {
-      const candidates = matchRangesInBlock(rootEl, query, caseSensitive)
+    const pickVerifiedHitRange = (rootEl, hit, query, caseSensitive, blockHitTotal, excludedGroupParts = null) => {
+      const candidates = matchRangesInBlock(rootEl, query, caseSensitive, excludedGroupParts)
       if (!candidates.length) return null
       if (candidates.length === 1 && blockHitTotal <= 1) return candidates[0].range
       const lc = (hit.excerpt?.leftContext || '').trim().slice(-8)
@@ -896,7 +976,7 @@ window.__ModuleLoader__.load({
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { if (isStale()) finish(false); else if (untilFn && untilFn()) finish(true) })
     })
 
-    const revealHiddenAncestors = async (flow, targetEl, hit, query, caseSensitive, blockHitTotal, isStale) => {
+    const revealHiddenAncestors = async (flow, targetEl, hit, query, caseSensitive, blockHitTotal, isStale, excludedGroupParts = null) => {
       const hiddenChain = []
       let cur = targetEl
       while (cur && cur !== flow) {
@@ -923,7 +1003,7 @@ window.__ModuleLoader__.load({
         if (isStale()) return null
         primary = findTargetNodeElements(flow, hit)[0] || primary
       }
-      if (hit.nodeKey && primary && !pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal)) {
+      if (hit.nodeKey && primary && !pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal, excludedGroupParts)) {
         const toggles = [...primary.querySelectorAll('[aria-expanded="false"]')].filter((btn) => {
           if (btn.closest('[data-chat-node-key]') !== primary) return false
           if (btn.hasAttribute('aria-haspopup')) return false
@@ -936,7 +1016,7 @@ window.__ModuleLoader__.load({
             await waitDomCommit(primary, isStale, 450, () => !(typeof primary.contains === 'function' ? primary.contains(toggleBtn) : toggleBtn.isConnected) || toggleBtn.getAttribute('aria-expanded') !== 'false')
             if (isStale()) return null
             primary = findTargetNodeElements(flow, hit)[0] || primary
-            if (pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal)) break
+            if (pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal, excludedGroupParts)) break
           }
         }
       }
@@ -988,8 +1068,9 @@ window.__ModuleLoader__.load({
       return root.querySelector('[data-conversation-scroll]') || flow.parentElement
     }
 
-    const collectVisibleBlockRanges = (flow, scroller, query, caseSensitive) => {
+    const collectVisibleBlockRanges = (flow, scroller, query, caseSensitive, allowedTargets = null, excludedGroupParts = null) => {
       if (!flow || !query || typeof CSS === 'undefined' || !CSS.highlights) return []
+      if (allowedTargets && allowedTargets.size === 0) return []
       const rx = compileLiteralRegex(query, caseSensitive)
       if (!rx) return []
       const sRect = scroller?.getBoundingClientRect?.()
@@ -998,9 +1079,18 @@ window.__ModuleLoader__.load({
       const ranges = []
       for (const nodeEl of flow.querySelectorAll('[data-chat-node-key]')) {
         if (nodeEl.closest('[hidden]')) continue
+        if (allowedTargets) {
+          const ownKey = nodeEl.dataset?.chatNodeKey || ''
+          const ownPart = nodeEl.dataset?.chatGroupPart || ''
+          if (ownPart) {
+            if (!allowedTargets.has(`${ownKey}|${ownPart}`) && !allowedTargets.has(`${ownKey}|`)) continue
+          } else if (!allowedTargets.has(ownKey)) {
+            continue
+          }
+        }
         const r = nodeEl.getBoundingClientRect?.()
         if (sRect && r && (r.bottom < topBound || r.top > botBound)) continue
-        for (const item of matchRangesInBlock(nodeEl, query, caseSensitive)) {
+        for (const item of matchRangesInBlock(nodeEl, query, caseSensitive, excludedGroupParts)) {
           ranges.push(item.range)
           if (ranges.length >= 250) return ranges
         }
@@ -1062,9 +1152,13 @@ window.__ModuleLoader__.load({
       let lastRevision = -1
       let query = ''
       let caseSensitive = false
+      let searchScope = { ...DEFAULT_SEARCH_SCOPE }
+      let scopeMenuOpen = false
       let queryGen = 0
+      const enabledKinds = () => resolveEnabledSourceKinds(searchScope)
+      const excludedParts = () => resolveExcludedGroupParts(enabledKinds())
       cache.setCompactEvaluator((p) => (
-        query ? matchItems(assembleSearchableItems(p.boundaries, p.extracted.rawItems, []), query, caseSensitive, false) : []
+        query ? matchItems(assembleSearchableItems(p.boundaries, p.extracted.rawItems, []), query, caseSensitive, false, enabledKinds()) : []
       ))
       let hits = []
       let navigated = false
@@ -1098,7 +1192,8 @@ window.__ModuleLoader__.load({
       }
 
       const buildSnapshot = () => ({
-        open, sessionId: activeSessionId, query, caseSensitive, hits, navigated, selectedIndex, selectedHitKey,
+        open, sessionId: activeSessionId, query, caseSensitive, scope: searchScope, hasCustomScope: isCustomScope(searchScope), scopeMenuOpen,
+        hits, navigated, selectedIndex, selectedHitKey,
         scanState, scanError, remoteHasMore, hasEvictedPending, loadingTarget, fallbackNotice,
         hasRemote: Boolean(remoteSession && (typeof remoteSession.events === 'function' || typeof remoteSession.page === 'function')),
         canScanHistory: Boolean(query && (remoteHasMore || hasEvictedPending)),
@@ -1125,6 +1220,7 @@ window.__ModuleLoader__.load({
         if (!open || !query || !activeSessionId || !doc) { hl.clear(); return }
         const mainRoot = resolveMainConversationRoot(doc, activeSessionId)
         if (!mainRoot) { hl.clear(); return }
+        const exclParts = excludedParts()
         if (!currentRange && !fallbackEl && navigated && selectedIndex >= 0 && hits[selectedIndex]) {
           const active = hits[selectedIndex]
           if (!active.excerpt) active.excerpt = cache.hitExcerpts.get(active.hitKey) || null
@@ -1133,13 +1229,13 @@ window.__ModuleLoader__.load({
           const blockTotal = blockRenderCounts.get(sig) || 1
           for (const el of targets) {
             if (el.closest?.('[hidden]')) continue
-            const rng = pickVerifiedHitRange(el, active, query, caseSensitive, blockTotal)
+            const rng = pickVerifiedHitRange(el, active, query, caseSensitive, blockTotal, exclParts)
             if (rng) { currentRange = rng; break }
           }
           if (!currentRange && fallbackNotice && targets[0] && !targets[0].closest?.('[hidden]')) fallbackEl = targets[0]
         }
         const scroller = findMainScroller(mainRoot.root, mainRoot.flow)
-        const visibleRanges = collectVisibleBlockRanges(mainRoot.flow, scroller, query, caseSensitive)
+        const visibleRanges = collectVisibleBlockRanges(mainRoot.flow, scroller, query, caseSensitive, buildAllowedDomTargets(hits), exclParts)
         hl.apply(visibleRanges, currentRange, fallbackEl)
       }
 
@@ -1157,7 +1253,7 @@ window.__ModuleLoader__.load({
         }
         const win = activeBinding.eventSource.getSnapshot()
         remoteHasMore = computeRemainingMore(win)
-        const res = computeCombinedMatches(cache, win?.entries || [], query, caseSensitive, selectedHitKey)
+        const res = computeCombinedMatches(cache, win?.entries || [], query, caseSensitive, selectedHitKey, enabledKinds())
         hits = res.hits
         hasEvictedPending = res.evictedPending
         blockRenderCounts = new Map()
@@ -1244,7 +1340,7 @@ window.__ModuleLoader__.load({
         cache.touch(hit.pageKey)
         if (page.extracted) {
           const items = assembleSearchableItems(page.boundaries, page.extracted.rawItems, [])
-          const matched = matchItems(items, query, caseSensitive, true).find((m) => m.hitKey === hit.hitKey)
+          const matched = matchItems(items, query, caseSensitive, true, enabledKinds()).find((m) => m.hitKey === hit.hitKey)
           if (matched?.excerpt) { hit.excerpt = matched.excerpt; cache.hitExcerpts.set(hit.hitKey, matched.excerpt) }
           return hit
         }
@@ -1256,7 +1352,7 @@ window.__ModuleLoader__.load({
         if (!val.ok) return hit
         const ext = extractPageFromEvents(val.events)
         const items = assembleSearchableItems(ext.boundaries, ext.rawItems, [])
-        const pageHits = matchItems(items, query, caseSensitive, true)
+        const pageHits = matchItems(items, query, caseSensitive, true, enabledKinds())
         cache.putPage({ minSeq: val.minSeq ?? 0, maxSeq: val.maxSeq ?? -1, reqThroughSeq: page.reqThroughSeq, reqBeforeSeq: page.reqBeforeSeq, extracted: ext, compactHits: pageHits, compactHitsValidForQuery: true })
         for (const h of pageHits) if (h.excerpt) cache.hitExcerpts.set(h.hitKey, h.excerpt)
         const matched = pageHits.find((m) => m.hitKey === hit.hitKey)
@@ -1330,6 +1426,7 @@ window.__ModuleLoader__.load({
         flushDebounce()
         const myQuery = query
         const myCase = caseSensitive
+        const myKinds = enabledKinds()
         const mySessionId = activeSessionId
         if (!myQuery || !activeBinding || !remoteSession || scanState === 'scanning') return
         abortScanOnly()
@@ -1354,7 +1451,7 @@ window.__ModuleLoader__.load({
             if (!val.ok) { scanState = 'error'; scanError = val.error || t('statusError'); scanAbort = null; emit(); return }
             const ext = extractPageFromEvents(val.events)
             p.boundaries = ext.boundaries
-            cache.setPageHits(p.pageKey, matchItems(assembleSearchableItems(ext.boundaries, ext.rawItems, []), myQuery, myCase, true))
+            cache.setPageHits(p.pageKey, matchItems(assembleSearchableItems(ext.boundaries, ext.rawItems, []), myQuery, myCase, true, myKinds))
             recomputeLocal()
             await yieldThread()
           }
@@ -1386,7 +1483,7 @@ window.__ModuleLoader__.load({
             if (val.events.length > 0) {
               const ext = extractPageFromEvents(val.events)
               if (pinnedThroughSeq === undefined && val.maxSeq !== null) pinnedThroughSeq = val.maxSeq
-              const pageHits = matchItems(assembleSearchableItems(ext.boundaries, ext.rawItems, []), myQuery, myCase, false)
+              const pageHits = matchItems(assembleSearchableItems(ext.boundaries, ext.rawItems, []), myQuery, myCase, false, myKinds)
               cache.putPage({
                 minSeq: val.minSeq, maxSeq: val.maxSeq, reqThroughSeq: pinnedThroughSeq ?? val.maxSeq,
                 reqBeforeSeq: nextBeforeSeq, extracted: ext, compactHits: pageHits, compactHitsValidForQuery: true,
@@ -1468,12 +1565,13 @@ window.__ModuleLoader__.load({
 
         const sig = `${hit.nodeKey || ''}|${hit.groupPart || ''}`
         const blockTotal = blockRenderCounts.get(sig) || 1
+        const exclParts = excludedParts()
         let primary = null
         let verifiedRange = null
         for (const candidate of targets) {
-          const revealed = await revealHiddenAncestors(mainRoot.flow, candidate, hit, query, caseSensitive, blockTotal, isStale)
+          const revealed = await revealHiddenAncestors(mainRoot.flow, candidate, hit, query, caseSensitive, blockTotal, isStale, exclParts)
           if (isStale()) return
-          const rng = revealed ? pickVerifiedHitRange(revealed, hit, query, caseSensitive, blockTotal) : null
+          const rng = revealed ? pickVerifiedHitRange(revealed, hit, query, caseSensitive, blockTotal, exclParts) : null
           if (rng) { primary = revealed; verifiedRange = rng; break }
           if (!primary && revealed) primary = revealed
         }
@@ -1517,6 +1615,7 @@ window.__ModuleLoader__.load({
         abortNavigationOnly()
         resetScanCursor()
         open = false
+        scopeMenuOpen = false
         navigated = false
         selectedIndex = -1
         selectedHitKey = null
@@ -1555,7 +1654,7 @@ window.__ModuleLoader__.load({
         if (nextBinding) {
           if (nextBinding.session?.getSnapshot?.()?.removed) {
             activeBinding = null
-            if (open) { open = false; detachScrollerListener() }
+            if (open) { open = false; scopeMenuOpen = false; detachScrollerListener() }
           } else {
             const unSubEvt = nextBinding.eventSource.subscribe(() => {
               const win = nextBinding.eventSource.getSnapshot()
@@ -1568,13 +1667,14 @@ window.__ModuleLoader__.load({
               if (nextBinding.session?.getSnapshot?.()?.removed) {
                 resetScanCursor(); abortNavigationOnly(); activeBinding = null
                 unbindSession(); unbindSession = () => {}
-                open = false; detachScrollerListener(); hl.clear(); emit()
+                open = false; scopeMenuOpen = false; detachScrollerListener(); hl.clear(); emit()
               }
             })
             unbindSession = () => { unSubEvt(); unSubSess() }
           }
         } else if (!nextId && open) {
           open = false
+          scopeMenuOpen = false
           detachScrollerListener()
         }
         if (open && activeBinding) { attachScrollerListener(); recomputeLocal() }
@@ -1609,6 +1709,48 @@ window.__ModuleLoader__.load({
         return true
       }
 
+      const applyScope = (nextScope) => {
+        searchScope = normalizeSearchScope(nextScope)
+        queryGen++
+        const prevScan = scanState
+        abortScanOnly()
+        abortNavigationOnly()
+        navigated = false
+        selectedIndex = -1
+        selectedHitKey = null
+        fallbackNotice = null
+        let anyEvicted = false
+        for (const p of cache.pages.values()) {
+          p.compactHitsValidForQuery = false
+          p.compactHits = []
+          if (p.evicted) anyEvicted = true
+        }
+        scanError = null
+        scanState = (prevScan === 'done' && !anyEvicted)
+          ? 'done'
+          : (prevScan === 'paused' || prevScan === 'scanning') && (remoteHasMore || anyEvicted)
+            ? 'paused'
+            : 'idle'
+        recomputeLocal()
+      }
+      const setScope = (nextScope) => applyScope(nextScope)
+      const toggleScopeKey = (key) => {
+        if (key !== 'body' && !SCOPE_EXTRA_KEYS.includes(key)) return
+        applyScope({ ...searchScope, [key]: !searchScope[key] })
+      }
+      const resetScope = () => applyScope(DEFAULT_SEARCH_SCOPE)
+      const selectAllScope = () => {
+        const all = { body: true }
+        for (const k of SCOPE_EXTRA_KEYS) all[k] = true
+        applyScope(all)
+      }
+      const setScopeMenuOpen = (nextOpen) => {
+        const val = Boolean(nextOpen)
+        if (val === scopeMenuOpen) return
+        scopeMenuOpen = val
+        emit()
+      }
+
       const setQuery = (nextQuery) => onQueryChanged(String(nextQuery ?? ''), caseSensitive)
       const toggleCaseSensitive = () => onQueryChanged(query, !caseSensitive)
       const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn) }
@@ -1637,6 +1779,11 @@ window.__ModuleLoader__.load({
         closeFind,
         setQuery,
         toggleCaseSensitive,
+        setScope,
+        toggleScopeKey,
+        resetScope,
+        selectAllScope,
+        setScopeMenuOpen,
         navigate,
         jumpToHit,
         startOrResumeScan,
@@ -1729,7 +1876,9 @@ window.__ModuleLoader__.load({
         const wrapRef = React.useRef(null)
         const dragCleanupRef = React.useRef(null)
         const composingRef = React.useRef(false)
+        const prevMenuOpenRef = React.useRef(false)
         const [draft, setDraft] = React.useState(snap.query)
+        const [menuAbove, setMenuAbove] = React.useState(false)
         const [dragPos, setDragPos] = React.useState(() => {
           const saved = readSavedOverlayPosition()
           if (!saved) return null
@@ -1782,6 +1931,25 @@ window.__ModuleLoader__.load({
           dragCleanupRef.current = null
         }, [])
 
+        React.useEffect(() => {
+          if (prevMenuOpenRef.current && !snap.scopeMenuOpen && snap.open && activePanelId === null) {
+            inputRef.current?.focus?.({ preventScroll: true })
+          }
+          prevMenuOpenRef.current = snap.scopeMenuOpen
+        }, [snap.scopeMenuOpen, snap.open, activePanelId])
+
+        React.useEffect(() => {
+          if (!snap.open || !snap.scopeMenuOpen || activePanelId !== null || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+          const onOutsidePointer = (e) => {
+            const target = e.target
+            if (target?.closest?.('[data-tune-find-scope-menu="true"], [data-tune-find-scope="true"]')) return
+            if (e.button === 2 && target?.closest?.('.TCF_bar') && !target?.closest?.('input, textarea, .TCF_exText')) return
+            controller.setScopeMenuOpen(false)
+          }
+          window.addEventListener('pointerdown', onOutsidePointer, true)
+          return () => window.removeEventListener('pointerdown', onOutsidePointer, true)
+        }, [snap.open, snap.scopeMenuOpen, activePanelId])
+
         if (!snap.open || activePanelId !== null) return null
         const t = controller.t
         const countLabel = !snap.query
@@ -1827,8 +1995,21 @@ window.__ModuleLoader__.load({
           if (e.key === 'Escape' && !composingRef.current && !e.nativeEvent?.isComposing) {
             e.preventDefault()
             e.stopPropagation()
-            controller.closeFind(true)
+            if (snap.scopeMenuOpen) controller.setScopeMenuOpen(false)
+            else controller.closeFind(true)
           }
+        }
+        const computeMenuAbove = () => {
+          const rect = wrapRef.current?.getBoundingClientRect?.()
+          if (!rect || typeof window === 'undefined') return false
+          return ((window.innerHeight || 720) - rect.bottom) < 300 && rect.top > 280
+        }
+        const onBarContextMenu = (e) => {
+          if (e.target?.closest?.('input, textarea, .TCF_exText')) return
+          e.preventDefault?.()
+          e.stopPropagation?.()
+          setMenuAbove(computeMenuAbove())
+          controller.setScopeMenuOpen(true)
         }
         const onBarPointerDown = (e) => {
           if (e.button !== undefined && e.button !== 0) return
@@ -1904,7 +2085,7 @@ window.__ModuleLoader__.load({
           },
           h(
             'div',
-            { className: 'TCF_bar', onPointerDown: onBarPointerDown },
+            { className: 'TCF_bar', onPointerDown: onBarPointerDown, onContextMenu: onBarContextMenu },
             h(
               'div',
               { className: 'TCF_row' },
@@ -1934,12 +2115,32 @@ window.__ModuleLoader__.load({
                   onKeyDown: (e) => {
                     if (composingRef.current || e.nativeEvent?.isComposing || e.keyCode === 229) return
                     if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); controller.navigate(e.shiftKey ? -1 : 1) }
-                    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); controller.closeFind(true) }
+                    else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (snap.scopeMenuOpen) controller.setScopeMenuOpen(false)
+                      else controller.closeFind(true)
+                    }
                   },
                 }),
                 countLabel ? h('span', { className: 'TCF_count', 'data-tune-find-count': 'true' }, countLabel) : null,
               ),
               h('button', { type: 'button', className: 'TCF_btn', 'data-tune-find-case': 'true', 'aria-pressed': snap.caseSensitive ? 'true' : 'false', title: t('caseSensitive'), 'aria-label': t('caseSensitive'), onClick: () => controller.toggleCaseSensitive() }, 'Aa'),
+              h('button', {
+                type: 'button',
+                className: 'TCF_btn TCF_scopeBtn',
+                'data-tune-find-scope': 'true',
+                'data-custom-scope': snap.hasCustomScope ? 'true' : undefined,
+                'aria-haspopup': 'menu',
+                'aria-expanded': snap.scopeMenuOpen ? 'true' : 'false',
+                title: t('scopeBtn'),
+                'aria-label': t('scopeBtn'),
+                onClick: () => {
+                  const next = !snap.scopeMenuOpen
+                  if (next) setMenuAbove(computeMenuAbove())
+                  controller.setScopeMenuOpen(next)
+                },
+              }, svgIcon(h, 'M2 4h12M4 8h8M6 12h4', 14), snap.hasCustomScope ? h('span', { className: 'TCF_dot', 'aria-hidden': 'true' }) : null),
               h('button', { type: 'button', className: 'TCF_btn', 'data-tune-find-prev': 'true', disabled: snap.hits.length === 0, title: t('prev'), 'aria-label': t('prev'), onClick: () => controller.navigate(-1) }, svgIcon(h, 'M4 10L8 6L12 10')),
               h('button', { type: 'button', className: 'TCF_btn', 'data-tune-find-next': 'true', disabled: snap.hits.length === 0, title: t('next'), 'aria-label': t('next'), onClick: () => controller.navigate(1) }, svgIcon(h, 'M4 6L8 10L12 6')),
               h('button', { type: 'button', className: 'TCF_btn', 'data-tune-find-close': 'true', title: t('close'), 'aria-label': t('close'), onClick: () => controller.closeFind(true) }, svgIcon(h, 'M4 4L12 12M12 4L4 12')),
@@ -1963,6 +2164,52 @@ window.__ModuleLoader__.load({
               ) : null,
             ) : null,
           ),
+          snap.scopeMenuOpen ? h(
+            'div',
+            {
+              className: 'TCF_menu',
+              'data-tune-find-scope-menu': 'true',
+              'data-placement': menuAbove ? 'above' : 'below',
+              role: 'menu',
+              'aria-label': t('scopeMenuTitle'),
+            },
+            h('div', { className: 'TCF_menuHead' }, t('scopeMenuTitle')),
+            h(
+              'button',
+              {
+                type: 'button',
+                role: 'menuitemcheckbox',
+                className: 'TCF_menuItem',
+                'data-tune-find-scope-opt': 'body',
+                'aria-checked': snap.scope.body ? 'true' : 'false',
+                onClick: () => controller.toggleScopeKey('body'),
+              },
+              h('span', { className: 'TCF_chk', 'aria-hidden': 'true' }, snap.scope.body ? svgIcon(h, 'M3 8.2L6.2 11.4L13 4.6', 10) : null),
+              h('span', { className: 'TCF_menuLabel' }, t('scopeBody')),
+              h('span', { className: 'TCF_menuTag' }, t('scopeDefaultTag')),
+            ),
+            h('div', { className: 'TCF_menuSep', role: 'separator' }),
+            ...SCOPE_EXTRA_KEYS.map((key) => h(
+              'button',
+              {
+                key,
+                type: 'button',
+                role: 'menuitemcheckbox',
+                className: 'TCF_menuItem',
+                'data-tune-find-scope-opt': key,
+                'aria-checked': snap.scope[key] ? 'true' : 'false',
+                onClick: () => controller.toggleScopeKey(key),
+              },
+              h('span', { className: 'TCF_chk', 'aria-hidden': 'true' }, snap.scope[key] ? svgIcon(h, 'M3 8.2L6.2 11.4L13 4.6', 10) : null),
+              h('span', { className: 'TCF_menuLabel' }, t(`src_${key}`)),
+            )),
+            h(
+              'div',
+              { className: 'TCF_menuFoot' },
+              h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-scope-reset': 'true', onClick: () => controller.resetScope() }, t('scopeReset')),
+              h('button', { type: 'button', className: 'TCF_link', 'data-tune-find-scope-all': 'true', onClick: () => controller.selectAllScope() }, t('scopeAll')),
+            ),
+          ) : null,
         )
       }
 
@@ -2096,11 +2343,13 @@ window.__ModuleLoader__.load({
       let escAttached = false
       const onGlobalEscape = (e) => {
         if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 || e.altKey || e.ctrlKey || e.metaKey) return
-        if (!controller.getSnapshot().open) return
+        const snap = controller.getSnapshot()
+        if (!snap.open) return
         if (e.target?.closest?.('[role="dialog"], [aria-modal="true"]') || (typeof document !== 'undefined' && document.querySelector?.('[role="dialog"][aria-modal="true"], dialog[open]'))) return
         e.preventDefault()
         e.stopPropagation()
-        controller.closeFind(true)
+        if (snap.scopeMenuOpen) controller.setScopeMenuOpen(false)
+        else controller.closeFind(true)
       }
       const syncEsc = () => {
         if (typeof window === 'undefined') return
@@ -2124,6 +2373,7 @@ window.__ModuleLoader__.load({
 
     exports.__internals = {
       MODULE_ID, CONFIG_NS, COMMAND_ID, LOCALE_NS, SHORTCUT_DEFAULTS, MAX_HISTORY_CACHE_BYTES, DEFAULT_PAGE_OPTIONS, DEBOUNCE_MS,
+      SCOPE_EXTRA_KEYS, DEFAULT_SEARCH_SCOPE, normalizeSearchScope, isCustomScope, resolveEnabledSourceKinds, resolveExcludedGroupParts, buildAllowedDomTargets,
       conversationContextKey, extractDurableEvent, extractPageFromEvents, reduceTransientChunks, foldBoundaries, resolveTurnAt,
       assembleSearchableItems, compileLiteralRegex, buildExcerpt, matchItems, createHistoryCache, resolveSessionAddress,
       durableSeqBounds, validatePageResult, computeCombinedMatches, collectBlockTextSegments, matchRangesInBlock,
