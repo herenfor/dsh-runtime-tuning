@@ -862,8 +862,9 @@ window.__ModuleLoader__.load({
       return []
     }
 
-    const waitDomCommit = (observeRoot, isStale, timeoutMs = 180) => new Promise((resolve) => {
+    const waitDomCommit = (observeRoot, isStale, timeoutMs = 240, untilFn = null) => new Promise((resolve) => {
       if (isStale()) return resolve(false)
+      if (untilFn && untilFn()) return resolve(true)
       let done = false
       let timer = null
       let obs = null
@@ -877,13 +878,14 @@ window.__ModuleLoader__.load({
       if (typeof MutationObserver === 'function' && observeRoot) {
         obs = new MutationObserver(() => {
           if (isStale()) return finish(false)
+          if (untilFn && !untilFn()) return
           if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => finish(true))
           else finish(true)
         })
         try { obs.observe(observeRoot, { attributes: true, attributeFilter: ['hidden', 'aria-expanded'], childList: true, subtree: true }) } catch {}
       }
       timer = setTimeout(() => finish(!isStale()), timeoutMs)
-      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { if (isStale()) finish(false) })
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => { if (isStale()) finish(false); else if (untilFn && untilFn()) finish(true) })
     })
 
     const revealHiddenAncestors = async (flow, targetEl, hit, query, caseSensitive, blockHitTotal, isStale) => {
@@ -899,21 +901,35 @@ window.__ModuleLoader__.load({
           if (isStale()) return null
           try { anc.dispatchEvent(new Event('beforematch', { bubbles: false })) } catch {}
         }
-        await waitDomCommit(flow, isStale, 200)
+        await waitDomCommit(flow, isStale, 900, () => hiddenChain.every((anc) => !anc.hasAttribute?.('hidden')))
         if (isStale()) return null
       }
-      const refound = findTargetNodeElements(flow, hit)
-      const primary = refound[0] || targetEl
-      if (hit.nodeKey && primary && hit.sourceKind === 'tool' && !pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal)) {
+      let primary = findTargetNodeElements(flow, hit)[0] || targetEl
+      const innerHidden = [...(primary?.querySelectorAll?.('[hidden="until-found"]') || [])]
+      if (innerHidden.length) {
+        for (const h of innerHidden) {
+          if (isStale()) return null
+          try { h.dispatchEvent(new Event('beforematch', { bubbles: false })) } catch {}
+        }
+        await waitDomCommit(primary, isStale, 600, () => innerHidden.every((h) => !h.hasAttribute?.('hidden')))
+        if (isStale()) return null
+        primary = findTargetNodeElements(flow, hit)[0] || primary
+      }
+      if (hit.nodeKey && primary && !pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal)) {
         const toggles = [...primary.querySelectorAll('[aria-expanded="false"]')].filter((btn) => {
           if (btn.closest('[data-chat-node-key]') !== primary) return false
           if (btn.hasAttribute('aria-haspopup')) return false
           return btn.matches('button, [role="button"], [data-expandable]')
         })
-        if (toggles.length === 1 && !isStale()) {
-          try { toggles[0].click() } catch {}
-          await waitDomCommit(primary, isStale, 180)
-          if (isStale()) return null
+        if (toggles.length >= 1 && toggles.length <= 4) {
+          for (const toggleBtn of toggles) {
+            if (isStale()) return null
+            try { toggleBtn.click() } catch {}
+            await waitDomCommit(primary, isStale, 450, () => !(typeof primary.contains === 'function' ? primary.contains(toggleBtn) : toggleBtn.isConnected) || toggleBtn.getAttribute('aria-expanded') !== 'false')
+            if (isStale()) return null
+            primary = findTargetNodeElements(flow, hit)[0] || primary
+            if (pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal)) break
+          }
         }
       }
       return findTargetNodeElements(flow, hit)[0] || primary

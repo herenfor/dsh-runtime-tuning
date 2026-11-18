@@ -162,6 +162,11 @@ const createMockDom = () => {
       while (cur) { if (cur.nodeType === 1 && cur.matches(sel)) return cur; cur = cur.parentElement }
       return null
     }
+    contains(ch) {
+      let cur = ch
+      while (cur) { if (cur === this) return true; cur = cur.parentElement }
+      return false
+    }
     querySelectorAll(sel) {
       const out = []
       const walk = (n) => {
