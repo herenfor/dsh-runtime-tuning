@@ -13,7 +13,7 @@ const npm = (args) => execFileSync('npm', args, { cwd: root, encoding: 'utf8', s
 try {
   const [packed] = JSON.parse(npm(['pack', '--json', '--pack-destination', temp]))
   const names = packed.files.map(f => f.path)
-  for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/tuned-preset.mjs', 'plugins/collaborative-preset.mjs', 'plugins/collaboration-prompt.mjs', 'plugins/tool-discovery.mjs', 'plugins/grep-enhanced.mjs', 'plugins/grep-engine.mjs', 'plugins/host-modules.mjs', 'plugins/log.mjs', 'plugins/sidebar-open.mjs', 'ui-chat/index.mjs', 'ui-sidebar-open/package.json', 'ui-sidebar-open/index.mjs', 'ui-sidebar-open/client.js', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
+  for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/tuned-preset.mjs', 'plugins/collaborative-preset.mjs', 'plugins/collaboration-prompt.mjs', 'plugins/tool-discovery.mjs', 'plugins/grep-enhanced.mjs', 'plugins/grep-engine.mjs', 'plugins/host-modules.mjs', 'plugins/log.mjs', 'plugins/sidebar-open.mjs', 'ui-chat/index.mjs', 'ui-sidebar-open/package.json', 'ui-sidebar-open/index.mjs', 'ui-sidebar-open/client.js', 'ui-conversation-find/package.json', 'ui-conversation-find/index.mjs', 'ui-conversation-find/client.js', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
   for (const name of names) assert.ok(!/^(?:test|scripts|\.git|\.claude)\/|^ui-chat\/(?:assets\/|client.js$|package.json$)|\.tgz$/.test(name), `unexpected package file: ${name}`)
   npm(['install', '--prefix', temp, '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--offline', join(temp, packed.filename)])
   const fromHost = createRequire(join(temp, 'package.json'))
@@ -49,10 +49,13 @@ try {
   })
   assert.equal(fileURLToPath(config.plugins[0].name), fromHost.resolve(prompt))
   assert.equal(fileURLToPath(config.plugins[1].config[0].name), fromHost.resolve(compaction))
-  const host = process.env.DSH_BIN ?? join(homedir(), '.local/bin/dsh')
-  if (existsSync(host)) {
+  const host = [process.env.DSH_BIN, join(homedir(), '.local/bin/dsh'), join(homedir(), '.local/share/dsh-cli/node_modules/@deepseek-ai/dsh/lib/bin.js')].find((p) => p && existsSync(p))
+  if (host) {
     const old = process.argv[1]; process.argv[1] = host
     try {
+      const findMod = await import(fromHost.resolve('@herenfor/dsh-tune/ui-conversation-find/index.mjs'))
+      assert.equal(typeof findMod.apply, 'function')
+      assert.ok(findMod.Config, 'ui-conversation-find Config schema loaded')
       const collaborative = await import(fromHost.resolve('@herenfor/dsh-tune/plugins/collaborative-preset.mjs'))
       const composed = collaborative.buildCollaborativeConfig({}, collaborative.standardComposition())
       for (const id of ['collaboration-prompt', 'tool-discovery', 'tool-use-prompt', 'tool-fs-search']) {

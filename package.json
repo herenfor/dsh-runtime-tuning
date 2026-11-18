@@ -36,6 +36,7 @@
     "plugins",
     "ui-chat/index.mjs",
     "ui-sidebar-open",
+    "ui-conversation-find",
     "docs",
     "cordis.patch.yml",
     "CHANGELOG.md",

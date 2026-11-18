@@ -1,0 +1,26 @@
+{
+  "name": "@herenfor/dsh-tune-conversation-find",
+  "version": "0.2.19",
+  "private": true,
+  "type": "module",
+  "description": "In-conversation full-history find bar (Ctrl+F / Cmd+F) for DSH Desktop and Web.",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-shortcuts",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  }
+}

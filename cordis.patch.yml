@@ -34,6 +34,8 @@
       name: ./ui-chat/index.mjs
     - id: runtime-tuning-sidebar-open
       name: ./ui-sidebar-open/index.mjs
+    - id: runtime-tuning-conversation-find
+      name: ./ui-conversation-find/index.mjs
     - id: runtime-tuning-preset-collaborative
       name: ./plugins/collaborative-preset.mjs
       config:

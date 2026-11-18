@@ -227,6 +227,24 @@ DSH 的模型几乎只在最后才写正文，干活时不说话：近期 17 个
 
 如要彻底停用前端侧栏模块加载，也可在 profile 的 `cordis.patch.yml` 中写 `- id: runtime-tuning-sidebar-open` + `disabled: true`。
 
+**conversation-find（对话内全历史查找）**
+
+为 DSH Desktop 与 Web 提供独立插件模块（`runtime-tuning-conversation-find` / `@herenfor/dsh-tune-conversation-find`），支持在当前主对话的全部历史（含尚未加载到窗口中的更早分页与折叠工具/推理节点）中进行字面量查找：
+
+- **打开方式**：
+  - 主对话右上标题栏固定放大镜按钮（Web 与 Desktop 通用）；
+  - Desktop 默认快捷键：`Ctrl+F`（Windows / Linux）或 `Cmd+F`（macOS）；
+  - Web 默认快捷键：`Ctrl+Alt+F`（Windows）或 `Cmd+Alt+F`（macOS，可在 DSH 快捷键设置内改键，Web 浏览器安全策略不接管默认 `Ctrl+F`）；
+  - 支持区分大小写（`Aa`）、回车跳转下一处 / `Shift+Enter` 上一处（兼容中文/日语 IME 组合输入）、`Esc` 关闭并把焦点归还原触发元素（且阻断 `Esc Esc` 停止快捷键误触发）。
+- **查找范围与增量分页**：打开时先对已加载事件窗口（含瞬时流式 delta）做字面量匹配；若存在更早未加载历史，提供独立「搜索全部历史 / 暂停 / 继续」控件按分页向后扫描至 `seq 0`（单会话保留最近 8 MiB 解析文本缓存与紧凑命中定位；超出淘汰后可按区间按需重读摘录）。
+- **DOM 定位与回退**：跳转到命中项时自动按需翻页加载目标轮次、触发 `hidden="until-found"` 的 `beforematch` 与收起态展开，使用 `TreeWalker` 与 `CSS.highlights` 高亮并滚入视口；若目标属于视图隐藏/压缩片段或非正文摘要，弹出摘录预览卡片并附带「重新定位」。
+
+| 配置 | 默认值 | 说明 |
+|---|---|---|
+| `interceptCtrlFOnWeb` | `false` | 易失设置（不持久化覆写用户自定义）；仅在 Web 端且主对话激活、无弹窗/全屏侧栏遮挡、焦点不在第三方输入控件内时接管 `Ctrl+F` / `Cmd+F` 打开对话查找，其余场景放行浏览器原生查找 |
+
+如需停用前端对话查找模块，可在 profile 的 `cordis.patch.yml` 中添加 `- id: runtime-tuning-conversation-find` 与 `disabled: true`。
+
 ### 上下文压缩推理档位修复（`compaction-effort`）
 
 - **挂载位置**：在 `cordis.patch.yml` 的 `调优（tuned）` 预设（`runtime-tuning-preset-tuned`）的隔离 `compaction` 组内，将 `compaction-basic` 指向 `@herenfor/dsh-tune/plugins/compaction-effort.mjs`（同时在 `plugins/tool-use-prompt.mjs` 的预设解析中把该行以及既有定制的 `@deepseek-ai/dsh-compaction-basic` 自动映射到同一实现；第三方的自定义压缩插件名保留不变）。
