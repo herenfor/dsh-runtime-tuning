@@ -1805,7 +1805,6 @@ window.__ModuleLoader__.load({
       ctx.effect(() => ctx.locale.register(LOCALE_NS, LOCALES), 'tune-conversation-find: locale')
       ctx.effect(() => ensureStyle(), 'tune-conversation-find: css')
       const controller = createFindController({ sessions: ctx.sessions, layout: ctx.layout, locale: ctx.locale })
-      if (ctx.remote?.session) controller.setRemoteSession(ctx.remote.session)
       const stopList = ctx.sessions?.list?.subscribe ? ctx.sessions.list.subscribe(() => controller.syncMainSession()) : null
       const stopPanel = ctx.layout?.panelInfo?.subscribe ? ctx.layout.panelInfo.subscribe(() => {
         if (ctx.layout.panelInfo.getSnapshot()?.activePanelId !== null) controller.refreshVisibleHighlights()
@@ -1845,7 +1844,7 @@ window.__ModuleLoader__.load({
 
         ctx.inject(['remote.session'], (scope) => {
           scope.effect(() => {
-            const rs = scope.get?.('remote.session') || scope.remote?.session || null
+            const rs = (typeof scope.get === 'function' ? scope.get('remote.session') : null) || null
             controller.setRemoteSession(rs)
             return () => controller.setRemoteSession(null)
           }, 'tune-conversation-find: remote-session')

@@ -631,20 +631,27 @@ test('T6: DOM locate (beforematch/TreeWalker/Highlight/scroll), React UI/IME/Esc
   const layout = { panelInfo }
   const configForm = createObservable({ value: { interceptCtrlFOnWeb: false } })
   const cleanups = []; const registeredSlots = []; const registeredShortcuts = []
-  const ctx = {
+  const strictProxy = (target, allowed) => new Proxy(target, {
+    get(obj, prop) {
+      if (typeof prop === 'string' && !allowed.has(prop)) throw new Error(`cannot get property "${prop}" without inject`)
+      return Reflect.get(obj, prop)
+    },
+  })
+  const rawCtx = {
     sessions, layout, locale: { register: () => () => {}, getSnapshot: () => ({ active: 'zh-CN' }) },
     slots: { inject: (n, fn) => { const d = fn(); registeredSlots.push(n); cleanups.push(d) }, register: (cfg, Comp) => ({ cfg, Comp }) },
     effect: (fn) => cleanups.push(fn()),
     inject(deps, cb) {
-      const scope = {
+      const scope = strictProxy({
         shortcuts: { runtime: 'web', platform: 'windows', register: (cmd) => { registeredShortcuts.push(cmd); return () => {} } },
         configForms: { get: (id) => (id === CONFIG_NS ? configForm : null) },
         get: (k) => (k === 'remote.session' ? null : null),
         effect: (fn) => cleanups.push(fn()),
-      }
+      }, new Set([...deps, 'get', 'effect']))
       cb(scope)
     },
   }
+  const ctx = strictProxy(rawCtx, new Set([...(mod.inject || []), 'effect', 'inject', 'get']))
   mod.apply(ctx)
   assert.ok(registeredSlots.includes('shell.overlay') && registeredSlots.includes('conversation.session.header.utilities'))
   assert.equal(registeredShortcuts[0].id, 'conversation.findInSession')
