@@ -83,6 +83,13 @@ const matchSimpleSelector = (el, raw) => {
     rest = rest.slice(tagMatch[0].length)
   }
   while (rest.length > 0) {
+    if (rest[0] === '.') {
+      const m = /^\.([a-zA-Z0-9_-]+)/.exec(rest)
+      if (!m) return false
+      rest = rest.slice(m[0].length)
+      if (!String(el.className || '').split(/\s+/).includes(m[1])) return false
+      continue
+    }
     if (rest[0] !== '[') return false
     const end = rest.indexOf(']')
     if (end < 0) return false
@@ -812,5 +819,102 @@ test('T8: jumpToHit invokes session.loadOlder() to materialize older turn into D
   assert.equal(ctrl.getSnapshot().sessionId, 's2')
   assert.equal(ctrl._cache.pages.size, 0)
   assert.equal(ctrl.getSnapshot().hits.length, 1)
+  ctrl.dispose()
+})
+
+test('T9: FindBarOverlay supports drag positioning, viewport clamping, localStorage persistence, and double-click reset', () => {
+  const dom = createMockDom()
+  const react = createReactStub()
+  const store = new Map()
+  dom.win.innerWidth = 1000
+  dom.win.innerHeight = 700
+  dom.win.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  }
+  const winExtraListeners = new Map()
+  const origAdd = dom.win.addEventListener.bind(dom.win)
+  const origRem = dom.win.removeEventListener.bind(dom.win)
+  dom.win.addEventListener = (ev, fn, cap) => {
+    origAdd(ev, fn, cap)
+    if (!winExtraListeners.has(ev)) winExtraListeners.set(ev, new Set())
+    winExtraListeners.get(ev).add(fn)
+  }
+  dom.win.removeEventListener = (ev, fn, cap) => {
+    origRem(ev, fn, cap)
+    winExtraListeners.get(ev)?.delete(fn)
+  }
+  const emitWin = (ev, payload) => {
+    for (const fn of [...(winExtraListeners.get(ev) || [])]) fn(payload)
+  }
+
+  const mod = loadClientModule({ dom, react })
+  const { clampOverlayPosition, readSavedOverlayPosition, writeSavedOverlayPosition, createFindController, createFindComponents } = mod.__internals
+
+  const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)))
+  assert.equal(clampOverlayPosition(null, { width: 420, height: 48 }, { width: 1000, height: 700 }), null)
+  assert.deepEqual(plain(clampOverlayPosition({ left: -50, top: 900 }, { width: 420, height: 48 }, { width: 1000, height: 700 })), { left: 8, top: 644 })
+  assert.deepEqual(plain(clampOverlayPosition({ left: 900, top: -10 }, { width: 420, height: 48 }, { width: 1000, height: 700 })), { left: 572, top: 8 })
+
+  store.set('dsh-tune:conversation-find:pos', '{bad-json')
+  assert.equal(readSavedOverlayPosition(), null)
+  writeSavedOverlayPosition({ left: 220, top: 140 })
+  assert.deepEqual(plain(readSavedOverlayPosition()), { left: 220, top: 140 })
+
+  const sessObs = createObservable({ sessionId: 's1', blank: false, removed: false, loadingOlder: false, hasMore: false })
+  const evSource = createObservable({ entries: [], hasMore: false, revision: 1 })
+  const list = createObservable({ byId: { s1: { id: 's1', retainedBy: { mainView: 1 } } } })
+  const sessions = { list, binding: (id) => (id === 's1' ? { sessionId: 's1', session: sessObs, eventSource: evSource } : null) }
+  const ctrl = createFindController({ sessions, layout: { panelInfo: createObservable({ activePanelId: null }) }, doc: dom.doc })
+  ctrl.openFind()
+
+  const ui = createFindComponents(ctrl)
+  let vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
+  assert.deepEqual(plain(vdom.props.style), { left: '220px', top: '140px', right: 'auto' })
+
+  const dragHandle = findInVdom(vdom, (n) => n.props?.['data-tune-find-drag'] === 'true')
+  const barNode = findInVdom(vdom, (n) => n.props?.className === 'TCF_bar')
+  assert.ok(dragHandle && barNode)
+
+  const wrapEl = dom.el('div')
+  wrapEl._rect = { left: 220, top: 140, width: 420, height: 48 }
+  vdom.props.ref.current = wrapEl
+
+  // Pressing on inputWrap must NOT begin drag
+  const inputWrapEl = dom.el('div', { className: 'TCF_inputWrap' })
+  barNode.props.onPointerDown({ button: 0, clientX: 280, clientY: 160, target: inputWrapEl, currentTarget: barNode, pointerId: 1 })
+  emitWin('pointermove', { clientX: 100, clientY: 100, pointerId: 1 })
+  vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
+  assert.deepEqual(plain(vdom.props.style), { left: '220px', top: '140px', right: 'auto' })
+
+  // Dragging via handle moves & clamps & persists
+  const handleEl = dom.el('button', { 'data-tune-find-drag': 'true' })
+  let prevented = false
+  barNode.props.onPointerDown({
+    button: 0, clientX: 230, clientY: 155, pointerId: 2, target: handleEl, currentTarget: barNode,
+    preventDefault() { prevented = true },
+  })
+  assert.equal(prevented, true)
+  emitWin('pointermove', { clientX: 430, clientY: 355, pointerId: 2 })
+  emitWin('pointerup', { pointerId: 2 })
+  vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
+  assert.deepEqual(plain(vdom.props.style), { left: '420px', top: '340px', right: 'auto' })
+  assert.deepEqual(plain(readSavedOverlayPosition()), { left: 420, top: 340 })
+
+  // Window shrink re-clamps current position
+  dom.win.innerWidth = 600
+  dom.win.innerHeight = 300
+  emitWin('resize', {})
+  vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
+  assert.deepEqual(plain(vdom.props.style), { left: '172px', top: '244px', right: 'auto' })
+
+  // Double-click grip resets position & clears persisted storage
+  const nextHandle = findInVdom(vdom, (n) => n.props?.['data-tune-find-drag'] === 'true')
+  nextHandle.props.onDoubleClick({ preventDefault() {}, stopPropagation() {} })
+  vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
+  assert.equal(vdom.props.style, undefined)
+  assert.equal(readSavedOverlayPosition(), null)
+
   ctrl.dispose()
 })

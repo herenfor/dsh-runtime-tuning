@@ -9,6 +9,8 @@ window.__ModuleLoader__.load({
     const STYLE_ID = '@herenfor/dsh-tune-conversation-find/ui.css'
     const HIGHLIGHT_ALL = 'dsh-tune-find-match'
     const HIGHLIGHT_CURRENT = 'dsh-tune-find-current'
+    const POS_STORAGE_KEY = 'dsh-tune:conversation-find:pos'
+    const POS_EDGE_MARGIN = 8
     const MAX_HISTORY_CACHE_BYTES = 8 * 1024 * 1024
     const DEFAULT_PAGE_OPTIONS = { maxMessages: 500, turnWindow: { minMessages: 50, minTurns: 2 } }
     const DEBOUNCE_MS = 150
@@ -42,6 +44,7 @@ window.__ModuleLoader__.load({
         fallbackTurn: '已定位到消息/轮次',
         fallbackHidden: '当前视图未展示此内容',
         relocate: '重新定位',
+        dragHandle: '拖动浮窗位置（双击重置）',
         noSession: '当前无打开的对话',
         src_user: '用户输入',
         src_steering: '插话消息',
@@ -76,6 +79,7 @@ window.__ModuleLoader__.load({
         fallbackTurn: 'Located in message/turn',
         fallbackHidden: 'Content not visible in current view',
         relocate: 'Relocate',
+        dragHandle: 'Drag to move (double-click to reset)',
         noSession: 'No active conversation',
         src_user: 'User message',
         src_steering: 'Steering',
@@ -93,13 +97,16 @@ window.__ModuleLoader__.load({
 .TCF_wrap{position:fixed;top:52px;right:20px;z-index:220;pointer-events:none;max-width:calc(100vw - 32px)}
 .TCF_bar{pointer-events:auto;box-sizing:border-box;width:min(420px,calc(100vw - 32px));display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:12px;background:var(--dsw-alias-bg-layer-2,var(--dsw-alias-bg-layer-1,#fff));color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.22));box-shadow:0 8px 28px rgba(0,0,0,.18);font-size:13px;line-height:18px}
 .TCF_row{display:flex;align-items:center;gap:4px;min-width:0}
+.TCF_drag{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:26px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:grab;touch-action:none;user-select:none}
+.TCF_drag:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.12));color:var(--dsw-alias-label-secondary)}
+.TCF_wrap[data-dragging="true"] .TCF_drag,.TCF_wrap[data-dragging="true"] .TCF_bar{cursor:grabbing;user-select:none}
 .TCF_inputWrap{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:6px;padding:0 8px;height:30px;border-radius:8px;background:var(--dsw-alias-bg-module-platform,rgba(128,128,128,.08));border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.2))}
 .TCF_inputWrap:focus-within{border-color:var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#3b82f6))}
 .TCF_input{flex:1 1 auto;min-width:0;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;padding:0}
 .TCF_count{flex:none;font-size:12px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums;white-space:nowrap}
 .TCF_btn{display:inline-flex;flex:none;align-items:center;justify-content:center;min-width:26px;height:26px;padding:0 5px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}
 .TCF_btn:enabled:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.12));color:var(--dsw-alias-label-primary)}
-.TCF_btn:focus-visible,.TCF_link:focus-visible,.TCF_trig:focus-visible{outline:1px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#3b82f6));outline-offset:1px}
+.TCF_btn:focus-visible,.TCF_drag:focus-visible,.TCF_link:focus-visible,.TCF_trig:focus-visible{outline:1px solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary,#3b82f6));outline-offset:1px}
 .TCF_btn:disabled{opacity:.42;cursor:default}
 .TCF_btn[aria-pressed="true"]{background:var(--dsw-alias-state-business-primary,#3b82f6);color:#fff}
 .TCF_meta{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);min-width:0}
@@ -1660,6 +1667,55 @@ window.__ModuleLoader__.load({
       h('path', { d }),
     )
 
+    const gripIcon = (h) => h(
+      'svg',
+      { width: 10, height: 14, viewBox: '0 0 10 14', fill: 'currentColor', 'aria-hidden': 'true' },
+      h('circle', { cx: '3', cy: '3', r: '1.1' }),
+      h('circle', { cx: '7', cy: '3', r: '1.1' }),
+      h('circle', { cx: '3', cy: '7', r: '1.1' }),
+      h('circle', { cx: '7', cy: '7', r: '1.1' }),
+      h('circle', { cx: '3', cy: '11', r: '1.1' }),
+      h('circle', { cx: '7', cy: '11', r: '1.1' }),
+    )
+
+    const clampOverlayPosition = (pos, boxSize, viewportSize, margin = POS_EDGE_MARGIN) => {
+      if (!pos || !Number.isFinite(pos.left) || !Number.isFinite(pos.top)) return null
+      const vw = Number.isFinite(viewportSize?.width) && viewportSize.width > 0 ? viewportSize.width : 1280
+      const vh = Number.isFinite(viewportSize?.height) && viewportSize.height > 0 ? viewportSize.height : 720
+      const bw = Number.isFinite(boxSize?.width) && boxSize.width > 0 ? boxSize.width : Math.min(420, Math.max(160, vw - 32))
+      const bh = Number.isFinite(boxSize?.height) && boxSize.height > 0 ? boxSize.height : 48
+      const safeX = vw > bw + margin * 2 ? margin : Math.max(0, Math.floor((vw - bw) / 2))
+      const maxLeft = Math.max(safeX, vw - bw - safeX)
+      const safeY = vh > bh + margin * 2 ? margin : Math.max(0, Math.floor((vh - bh) / 2))
+      const maxTop = Math.max(safeY, vh - bh - safeY)
+      return {
+        left: Math.round(Math.min(maxLeft, Math.max(safeX, pos.left))),
+        top: Math.round(Math.min(maxTop, Math.max(safeY, pos.top))),
+      }
+    }
+
+    const readSavedOverlayPosition = () => {
+      try {
+        const ls = typeof window !== 'undefined' ? window.localStorage : undefined
+        const raw = ls?.getItem?.(POS_STORAGE_KEY)
+        if (!raw) return null
+        const parsed = JSON.parse(raw)
+        if (!parsed || !Number.isFinite(parsed.left) || !Number.isFinite(parsed.top)) return null
+        return { left: parsed.left, top: parsed.top }
+      } catch {
+        return null
+      }
+    }
+
+    const writeSavedOverlayPosition = (pos) => {
+      try {
+        const ls = typeof window !== 'undefined' ? window.localStorage : undefined
+        if (!ls) return
+        if (!pos) ls.removeItem?.(POS_STORAGE_KEY)
+        else ls.setItem?.(POS_STORAGE_KEY, JSON.stringify({ left: pos.left, top: pos.top }))
+      } catch {}
+    }
+
     const createFindComponents = (controller) => {
       const { React, prim } = loadReactDeps()
       if (!React || typeof React.createElement !== 'function') return null
@@ -1669,8 +1725,30 @@ window.__ModuleLoader__.load({
         const snap = React.useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot)
         const activePanelId = typeof props?.usePanelInfo === 'function' ? props.usePanelInfo((p) => p?.activePanelId ?? null) : null
         const inputRef = React.useRef(null)
+        const wrapRef = React.useRef(null)
+        const dragCleanupRef = React.useRef(null)
         const composingRef = React.useRef(false)
         const [draft, setDraft] = React.useState(snap.query)
+        const [dragPos, setDragPos] = React.useState(() => {
+          const saved = readSavedOverlayPosition()
+          if (!saved) return null
+          const vw = (typeof window !== 'undefined' && window.innerWidth) || 1280
+          const vh = (typeof window !== 'undefined' && window.innerHeight) || 720
+          return clampOverlayPosition(saved, null, { width: vw, height: vh })
+        })
+        const [dragging, setDragging] = React.useState(false)
+
+        const reclampOverlay = () => {
+          const el = wrapRef.current
+          if (!el || typeof window === 'undefined') return
+          const rect = typeof el.getBoundingClientRect === 'function' ? el.getBoundingClientRect() : null
+          const vp = { width: window.innerWidth || 1280, height: window.innerHeight || 720 }
+          setDragPos((prev) => {
+            if (!prev) return prev
+            const next = clampOverlayPosition(prev, rect, vp)
+            return next && (next.left !== prev.left || next.top !== prev.top) ? next : prev
+          })
+        }
 
         React.useEffect(() => {
           if (!composingRef.current && draft !== snap.query) setDraft(snap.query)
@@ -1684,6 +1762,24 @@ window.__ModuleLoader__.load({
             if (typeof el.select === 'function') el.select()
           }
         }, [snap.open, snap.focusSeq, activePanelId])
+
+        const hasMeta = Boolean(snap.query && (snap.scanState || snap.remoteHasMore || snap.hasEvictedPending || snap.loadingTarget))
+        const hasExcerpt = Boolean(snap.fallbackNotice && snap.activeHit)
+        React.useEffect(() => {
+          if (!snap.open || activePanelId !== null || !dragPos) return
+          reclampOverlay()
+        }, [snap.open, activePanelId, hasMeta, hasExcerpt])
+
+        React.useEffect(() => {
+          if (!snap.open || activePanelId !== null || typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+          window.addEventListener('resize', reclampOverlay)
+          return () => window.removeEventListener('resize', reclampOverlay)
+        }, [snap.open, activePanelId])
+
+        React.useEffect(() => () => {
+          dragCleanupRef.current?.()
+          dragCleanupRef.current = null
+        }, [])
 
         if (!snap.open || activePanelId !== null) return null
         const t = controller.t
@@ -1733,16 +1829,93 @@ window.__ModuleLoader__.load({
             controller.closeFind(true)
           }
         }
+        const onBarPointerDown = (e) => {
+          if (e.button !== undefined && e.button !== 0) return
+          const target = e.target
+          const handleEl = target?.closest?.('[data-tune-find-drag="true"]')
+          if (!handleEl && target?.closest?.('input, textarea, select, button, a, [contenteditable], .TCF_inputWrap, .TCF_exText')) return
+          const wrapEl = wrapRef.current
+          if (!wrapEl || typeof wrapEl.getBoundingClientRect !== 'function' || typeof window === 'undefined') return
+          e.preventDefault?.()
+          dragCleanupRef.current?.()
+          const rect = wrapEl.getBoundingClientRect()
+          const originLeft = dragPos ? dragPos.left : rect.left
+          const originTop = dragPos ? dragPos.top : rect.top
+          const boxSize = { width: rect.width, height: rect.height }
+          const startX = e.clientX
+          const startY = e.clientY
+          const pointerId = e.pointerId
+          let moved = false
+          let latest = null
+          const captureEl = handleEl || e.currentTarget
+          try { if (pointerId !== undefined) captureEl?.setPointerCapture?.(pointerId) } catch {}
+
+          const onMove = (ev) => {
+            if (pointerId !== undefined && ev.pointerId !== undefined && ev.pointerId !== pointerId) return
+            const dx = ev.clientX - startX
+            const dy = ev.clientY - startY
+            if (!moved && Math.hypot(dx, dy) < 3) return
+            if (!moved) { moved = true; setDragging(true) }
+            const vp = { width: window.innerWidth || 1280, height: window.innerHeight || 720 }
+            latest = clampOverlayPosition({ left: originLeft + dx, top: originTop + dy }, boxSize, vp)
+            if (latest) setDragPos(latest)
+          }
+          const finish = (ev) => {
+            if (ev && pointerId !== undefined && ev.pointerId !== undefined && ev.pointerId !== pointerId) return
+            dragCleanupRef.current?.()
+            dragCleanupRef.current = null
+            setDragging(false)
+            if (moved && latest) writeSavedOverlayPosition(latest)
+            inputRef.current?.focus?.({ preventScroll: true })
+          }
+          dragCleanupRef.current = () => {
+            window.removeEventListener?.('pointermove', onMove)
+            window.removeEventListener?.('pointerup', finish)
+            window.removeEventListener?.('pointercancel', finish)
+            try { if (pointerId !== undefined) captureEl?.releasePointerCapture?.(pointerId) } catch {}
+          }
+          window.addEventListener?.('pointermove', onMove)
+          window.addEventListener?.('pointerup', finish)
+          window.addEventListener?.('pointercancel', finish)
+        }
+        const resetDragPos = (e) => {
+          e?.preventDefault?.()
+          e?.stopPropagation?.()
+          dragCleanupRef.current?.()
+          dragCleanupRef.current = null
+          setDragging(false)
+          setDragPos(null)
+          writeSavedOverlayPosition(null)
+          inputRef.current?.focus?.({ preventScroll: true })
+        }
 
         return h(
           'div',
-          { className: 'TCF_wrap', 'data-tune-find-root': 'true', role: 'search', 'aria-label': t('openLabel'), onKeyDown: onBarKeyDown },
+          {
+            ref: wrapRef,
+            className: 'TCF_wrap',
+            'data-tune-find-root': 'true',
+            'data-dragging': dragging ? 'true' : undefined,
+            style: dragPos ? { left: `${dragPos.left}px`, top: `${dragPos.top}px`, right: 'auto' } : undefined,
+            role: 'search',
+            'aria-label': t('openLabel'),
+            onKeyDown: onBarKeyDown,
+          },
           h(
             'div',
-            { className: 'TCF_bar' },
+            { className: 'TCF_bar', onPointerDown: onBarPointerDown },
             h(
               'div',
               { className: 'TCF_row' },
+              h('button', {
+                type: 'button',
+                tabIndex: -1,
+                className: 'TCF_drag',
+                'data-tune-find-drag': 'true',
+                title: t('dragHandle'),
+                'aria-label': t('dragHandle'),
+                onDoubleClick: resetDragPos,
+              }, gripIcon(h)),
               h(
                 'div',
                 { className: 'TCF_inputWrap' },
@@ -1954,7 +2127,7 @@ window.__ModuleLoader__.load({
       assembleSearchableItems, compileLiteralRegex, buildExcerpt, matchItems, createHistoryCache, resolveSessionAddress,
       durableSeqBounds, validatePageResult, computeCombinedMatches, collectBlockTextSegments, matchRangesInBlock,
       pickVerifiedHitRange, resolveMainConversationRoot, findTargetNodeElements, revealHiddenAncestors, createHighlightManager,
-      findMainScroller, collectVisibleBlockRanges, scrollToMatchTarget, createFindController, createFindComponents,
+      findMainScroller, collectVisibleBlockRanges, scrollToMatchTarget, clampOverlayPosition, readSavedOverlayPosition, writeSavedOverlayPosition, createFindController, createFindComponents,
     }
     return exports
   },
