@@ -668,6 +668,7 @@ test('T6: DOM locate (beforematch/TreeWalker/Highlight/scroll), React UI/IME/Esc
 
   const overlayReg = cleanups.find((c) => c?.cfg?.id === 'runtime-tuning.conversation-find')
   const controller = overlayReg.cfg.inject().controller
+  assert.equal(Object.is(controller.getSnapshot(), controller.getSnapshot()), true, 'getSnapshot preserves reference identity for React useSyncExternalStore')
   triggerBtn.focus(); controller.closeFind(false); controller.openFind(triggerBtn)
   controller.setQuery('targetNeedle')
   await controller.navigate(1)

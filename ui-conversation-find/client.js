@@ -1073,14 +1073,16 @@ window.__ModuleLoader__.load({
         return msg
       }
 
-      const emit = () => { for (const fn of [...listeners]) fn() }
-      const getSnapshot = () => ({
+      const buildSnapshot = () => ({
         open, sessionId: activeSessionId, query, caseSensitive, hits, navigated, selectedIndex, selectedHitKey,
         scanState, scanError, remoteHasMore, hasEvictedPending, loadingTarget, fallbackNotice,
         hasRemote: Boolean(remoteSession && (typeof remoteSession.events === 'function' || typeof remoteSession.page === 'function')),
         canScanHistory: Boolean(query && (remoteHasMore || hasEvictedPending)),
         runtime, platform, activeHit: selectedIndex >= 0 && selectedIndex < hits.length ? hits[selectedIndex] : null, focusSeq,
       })
+      let cachedSnapshot = buildSnapshot()
+      const emit = () => { cachedSnapshot = buildSnapshot(); for (const fn of [...listeners]) fn() }
+      const getSnapshot = () => cachedSnapshot
 
       const pruneAround = (centerIdx) => {
         const keep = new Set()
