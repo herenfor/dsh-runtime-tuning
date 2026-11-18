@@ -14,9 +14,9 @@ DeepSeek Harness 运行调优插件 · `@herenfor/dsh-tune`
 
 </div>
 
-让 DeepSeek Harness 更适合真实工程与长程任务：审批卡精简清晰、提问和等待不再卡死进程、长任务自动提醒进展与收尾、模型可在右侧栏自主打开网页或文件供即时预览，并提供「协作」与「调优」两个可选预设。
+让 DeepSeek Harness 更适合真实工程与长程任务：审批卡精简清晰、提问和等待不再卡死进程、长任务自动提醒进展与收尾、模型可在右侧栏自主打开网页或文件供即时预览、对话内支持 `Ctrl+F` 全历史正文查找，并提供「协作」与「调优」两个可选预设。
 
-> **生效范围说明**：常规增强（审批、等待、提问、进展提醒、表格与回答修复、凭据保护、`open_sidebar` 侧栏预览）**安装即自动生效**，无需切换预设；`collaborative`（「协作」）可在新建会话时按需选用，`tuned`（「调优」）默认关闭，需在配置启用。
+> **生效范围说明**：常规增强（审批、等待、提问、进展提醒、表格与回答修复、凭据保护、`open_sidebar` 侧栏预览、对话内查找）**安装即自动生效**，无需切换预设；`collaborative`（「协作」）可在新建会话时按需选用，`tuned`（「调优」）默认关闭，需在配置启用。
 
 <a id="快速开始"></a>
 
@@ -84,14 +84,14 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 本次更新
 
-**`0.2.19` · 自主侧栏预览与「协作」预设**
+**`0.2.20` · 对话内全历史查找（`Ctrl+F`）与交互打磨**
 
-- **自主侧栏预览（`open_sidebar`）**：模型生成文件或启动页面后，可主动在当前在屏会话的右侧栏直接预览（支持工作区/本地文件路径、代码/Markdown 行号、`sidebar`/`float` 位置以及 `http://`/`https://` 网页）；后台会话触发时会在切回该会话后补开一次，刷新与历史翻页不重复弹出，对话中提供可重开的预览操作行；`secret-files` 同步拦截凭据路径。
-- **新预设「协作」（`collaborative`）**：承接用户目标、已有决定与最新纠正，形成方案并推进已授权工作；基于完整 `standard` 组合构建，保留内置技能、计划、goal、定时与工作流。
-- **工具按需发现（`tool_search`）**：高频工具直接可用，定时任务、工作流及 MCP 能力按需查询并从下一步启用；同一步骤提前调用未加载工具会被拒绝，子代理保留完整 native 工具。
-- **grep 增强与 `/tmp` 修复**：支持 `content` / `files_with_matches` / `count` 模式、前后文、排除规则与跨行匹配，长行预览保留真实命中；修复 `/tmp` 下真实工作区在 `session-tmp` 中的路径识别。
+- **默认只搜对话正文，远离工具输出噪声**：在主对话右上栏新增放大镜按钮，Desktop 默认注册 `Ctrl+F` / `Cmd+F`、Web 默认注册 `Ctrl+Alt+F` / `Cmd+Alt+F`（`interceptCtrlFOnWeb` 默认关闭，可按需开启接管 Web `Ctrl+F`）。打开时仅匹配用户提问与助手回复正文，默认不混入思考过程、Bash/工具调用输出、斜杠命令、注入上下文等内部记录。
+- **二级菜单与浮窗右键按需扩搜**：点击查找条筛选按钮，或在浮窗空白/按钮区域右键打开范围菜单，可自由勾选思考过程、工具调用与输出、斜杠命令、注入上下文、压缩摘要、待办列表与轮次错误，或一键切换「仅搜正文 / 全部范围」；非默认范围激活时按钮亮蓝色提示点。
+- **可拖拽浮窗与直观细节**：支持通过左侧把手或浮窗空白处拖动位置并自动限制在视口内（`localStorage` 记忆位置），双击把手一键复位右上角；`Aa` 区分大小写按钮激活后保持蓝底白字；支持 IME 组合输入与分段 `Esc` 关闭（优先关范围菜单再关查找条）并归还焦点。
+- **全历史增量分页、快速跳转与性能防抖**：支持先搜当前窗口、按需向后增量扫描至 `seq 0`（单会话 8 MiB 分页缓存），合并流式增量刷新并自动丢弃已替换窗口的过期分页；跳转更早命中时调用宿主 `loadThrough` 精准加载目标历史、揭示 `until-found` 与折叠内容，不可见时退化为轮次锚点定位与摘录预览卡片。
 
-[协作预设详情 →](docs/collaborative-preset.md) · [完整更新记录 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md)
+[查找功能配置 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#配置) · [完整更新记录（含 0.2.19 及更早版本） →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md)
 
 ## 可选：开启调优预设
 
@@ -108,10 +108,11 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 已测版本
 
-**当前版本：`@herenfor/dsh-tune@0.2.19`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
+**当前版本：`@herenfor/dsh-tune@0.2.20`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
 
 | 验证项目 | DSH 版本 | 环境与已验证范围 |
 | --- | --- | --- |
+| 对话内全历史查找（`0.2.20`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4** / **24.22.3**；L1/L2 单测（含真实 `dsh-client-shortcuts` 6 端注册、宿主配置与流式/跳转回归）、离线打包与隔离 Chromium 端到端实测（快捷键、拖拽复位、`Aa` 悬停、范围菜单、全历史扫描与折叠展开） |
 | 自主侧栏预览（`0.2.19`） | **0.2.2-rc.3** | Linux / WSL，Node.js **22.23.4**；L1/L2 契约、启动图与 `dsh-wsl` 镜像校验、离线宿主集成；并在本机 `desktop-wsl` 桥接实测侧栏打开效果 |
 | 压缩修复与升级 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2** / **22.23.4**；压缩、能力回退、并发与旧预设升级回归，另有真实服务端手动对照 |
 | 协作预设（`collaborative`） | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2** / **22.23.4**；真实隔离 Host + 模拟 adapter，工具发现、步骤准入、grep、重启恢复与会话隔离 |
@@ -119,7 +120,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL，Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
 
 
-**自动检查：179 项，173 通过、6 跳过、0 失败**（传入本机 `DSH_BIN`；未设 `DSH_BIN` 时 172 通过、7 跳过）。另完成隔离真实 Host、包内离线安装（49 文件）与旧预设升级检查；本地验收命令见[协作预设说明](docs/collaborative-preset.md#验证与维护)。
+**自动检查：192 项，186 通过、6 跳过、0 失败**（传入本机 `DSH_BIN`；未设 `DSH_BIN` 时 185 通过、7 跳过；跳过项为本机未保留的旧版 `rc.2` / `rc.3` 宿主路径，另完成包内 52 文件离线安装与预设解析校验；`0.2.19` 时已同步跑通 `check:collaborative` 与 `check:preset-upgrade`）。
 
 安装版本范围：**`>=0.2.2-rc.1 <0.3.0-0`**。测试使用交互式 Web profile，浏览器为 Chromium；审批中的 CUA 由测试桩提供，压缩实验通过官方模块与真实模型服务运行。
 
