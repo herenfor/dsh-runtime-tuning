@@ -357,7 +357,7 @@ test('T1: extracts all durable event types, deduplicates replacements/transients
   ]
 
   const items = assembleSearchableItems(bounds, raw, transients)
-  const hits = matchItems(items, 'needle', false, true)
+  const hits = matchItems(items, 'needle', false)
   const texts = hits.map((h) => `${h.seq}:${h.sourceKind}:${h.fieldKey}:${h.nodeKey}:${h.groupPart || ''}:${h.turn}`)
 
   assert.ok(!items.some((it) => it.fields.some((f) => f.text.includes('replaced') || f.text.includes('stale transient'))), 'surface replacement & settled assistant drop stale append/transient')
@@ -383,17 +383,17 @@ test('T2: handles UTF-16 Unicode, Turkish dotted I, emoji, regex metacharacters,
     seq: 1, turn: 1, turnStartSeq: 0, nodeKey: 'n1', sourceKind: 'response', isTransient: false, pendingTurn: false,
     fields: [{ fieldKey: 'text', text: '前缀 中文👋 a.b[0](+?)*^$\\ İstanbul A.b[0](+?)*^$\\ a.b[0](+?)*^$\\ 后缀', groupPart: 'response' }],
   }]
-  const metaHitsInsensitive = matchItems(items, 'a.b[0](+?)*^$\\', false, true)
+  const metaHitsInsensitive = matchItems(items, 'a.b[0](+?)*^$\\', false)
   assert.equal(metaHitsInsensitive.length, 3)
   assert.deepEqual(Array.from(metaHitsInsensitive.map((h) => h.blockOrdinal)), [0, 1, 2])
 
-  const metaHitsSensitive = matchItems(items, 'a.b[0](+?)*^$\\', true, true)
+  const metaHitsSensitive = matchItems(items, 'a.b[0](+?)*^$\\', true)
   assert.equal(metaHitsSensitive.length, 2)
 
-  assert.equal(matchItems(items, '中文👋', false, false).length, 1)
-  assert.equal(matchItems(items, 'İstanbul', false, false).length, 1)
-  assert.equal(matchItems(items, 'istanbul', true, false).length, 0)
-  assert.equal(matchItems(items, 'İstanbul', true, false).length, 1)
+  assert.equal(matchItems(items, '中文👋', false).length, 1)
+  assert.equal(matchItems(items, 'İstanbul', false).length, 1)
+  assert.equal(matchItems(items, 'istanbul', true).length, 0)
+  assert.equal(matchItems(items, 'İstanbul', true).length, 1)
 })
 
 const makeMsgEvent = (seq, turn, text, kind = 'user') => ({
@@ -467,7 +467,7 @@ test('T4: 8 MiB budget constant verified, LRU eviction invalidates/rescans evict
   const p1 = extractPageFromEvents([makeMsgEvent(0, 0, big).event])
   const p2 = extractPageFromEvents([makeMsgEvent(1, 1, big).event])
   const cache = createHistoryCache(1800) // smaller byte threshold exercises real LRU eviction math
-  cache.setCompactEvaluator((p) => matchItems(assembleSearchableItems(p.boundaries, p.extracted.rawItems, []), 'needle', false, false))
+  cache.setCompactEvaluator((p) => matchItems(assembleSearchableItems(p.boundaries, p.extracted.rawItems, []), 'needle', false, { includeExcerpts: false }))
   cache.putPage({ minSeq: 0, maxSeq: 0, reqThroughSeq: 1, reqBeforeSeq: 1, extracted: p1, compactHitsValidForQuery: false })
   cache.putPage({ minSeq: 1, maxSeq: 1, reqThroughSeq: 1, reqBeforeSeq: 2, extracted: p2, compactHitsValidForQuery: false })
 
@@ -531,8 +531,11 @@ test('T4b: real >8 MiB scan evicts oldest page, rescans evicted range on query c
 test('T5: registers cleanly in real @deepseek-ai/dsh-client-shortcuts across all 6 profiles and preserves wsl: subagent addresses', (t) => {
   const mod = loadClientModule()
   const { SHORTCUT_DEFAULTS, COMMAND_ID, resolveSessionAddress } = mod.__internals
-  const sub = { kind: 'subagent', parentSessionId: 'wsl:p1', childSessionId: 'wsl:c1', mode: 'continuable' }
-  assert.deepEqual(resolveSessionAddress({ subagentAddress: () => sub }, null, 'wsl:c1'), sub)
+  const sub = { parentSessionId: 'wsl:p1', childSessionId: 'wsl:c1', mode: 'continuable' }
+  const expected = { ...sub, kind: 'subagent' }
+  const binding = { session: { getSnapshot: () => ({ subagent: { address: sub } }) } }
+  assert.deepEqual({ ...resolveSessionAddress(null, binding, 'wsl:c1') }, expected)
+  assert.deepEqual({ ...resolveSessionAddress({ subagentAddress: () => sub }, null, 'wsl:c1') }, expected)
 
   const shortcutsSrcPath = join(homedir(), '.local/share/dsh-cli/node_modules/.pnpm/node_modules/@deepseek-ai/dsh-client-shortcuts/lib/client.js')
   if (!existsSync(shortcutsSrcPath)) return t.skip('dsh-client-shortcuts bundle not installed')
@@ -782,7 +785,7 @@ test('T7: tool disclosure auto-expands or shows excerpt fallback, session switch
   }
 })
 
-test('T8: jumpToHit invokes session.loadOlder() to materialize older turn into DOM & session switch aborts active scan', async () => {
+test('T8: jumpToHit uses the Host jump loader, highlights the history result and resets on session switch', async () => {
   const dom = createMockDom()
   const mod = loadClientModule({ dom })
   const { createFindController } = mod.__internals
@@ -796,16 +799,21 @@ test('T8: jumpToHit invokes session.loadOlder() to materialize older turn into D
   const flow = dom.el('div', { 'data-chat-flow': 'true' })
   scroller.appendChild(flow); mainRoot.appendChild(scroller); dom.body.appendChild(mainRoot)
 
-  let loadOlderCalls = 0
-  const sess1 = createObservable({ sessionId: 's1', blank: false, removed: false, loadingOlder: false, hasMore: true })
+  const jumpTargets = []
+  const session = {
+    ...createObservable({ sessionId: 's1', blank: false, removed: false, loadingOlder: false, hasMore: true }),
+    async loadThrough(seq) {
+      jumpTargets.push(seq)
+      evS1.set({ entries: fullLog.map(event => ({ type: 'event', event })), hasMore: false, revision: 2 })
+      const node = dom.el('div', { 'data-chat-node-key': '13:input-messagem0' })
+      node.appendChild(dom.text('ancient secretNeedle'))
+      flow.appendChild(node)
+    },
+  }
   const sess2 = createObservable({ sessionId: 's2', blank: false, removed: false, loadingOlder: false, hasMore: false })
   const list = createObservable({ byId: { s1: { id: 's1', retainedBy: { mainView: 1 } } } })
-  const sessions = {
-    list,
-    binding: (id) => id === 's1'
-      ? { sessionId: 's1', session: { ...sess1, async loadOlder() { loadOlderCalls++; evS1.set({ entries: fullLog.map((e) => ({ type: 'event', event: e })), hasMore: false, revision: 2 }); const n = dom.el('div', { 'data-chat-node-key': '13:input-messagem0' }); n.appendChild(dom.text('ancient secretNeedle')); flow.appendChild(n) } }, eventSource: evS1 }
-      : { sessionId: 's2', session: sess2, eventSource: evS2 },
-  }
+  const bindings = { s1: { sessionId: 's1', session, eventSource: evS1 }, s2: { sessionId: 's2', session: sess2, eventSource: evS2 } }
+  const sessions = { list, binding: id => bindings[id] }
   const remoteSession = {
     async events(req) {
       if ((req.beforeSeq ?? 99) >= 1) return { ok: true, value: { cursor: 1, records: [{ type: 'event', event: fullLog[0] }], hasMore: false } }
@@ -817,7 +825,7 @@ test('T8: jumpToHit invokes session.loadOlder() to materialize older turn into D
   ctrl.setQuery('secretNeedle')
   await ctrl.startOrResumeScan()
   await ctrl.jumpToHit(0)
-  assert.equal(loadOlderCalls, 1)
+  assert.deepEqual(jumpTargets, [0])
   assert.equal(dom.CSS.highlights.get('dsh-tune-find-current').ranges[0].toString(), 'secretNeedle')
 
   // Switch active session s1 -> s2 while open -> clears cache & recomputes new session's live window
@@ -1030,4 +1038,59 @@ test('T10: defaults to body-only search (excludes reasoning/tool/command/etc.) a
   assert.deepEqual(Array.from(ctrl.getSnapshot().hits.map((h) => h.sourceKind)), ['user', 'response'])
 
   ctrl.dispose()
+})
+
+test('stream updates coalesce and a replaced history window discards a late page', async () => {
+  const { createFindController } = loadClientModule().__internals
+  const tail = makeMsgEvent(2, 1, 'needle')
+  const entries = [tail]
+  const eventSource = createObservable({ entries, hasMore: true, revision: 1 })
+  const binding = { eventSource, session: createObservable({ blank: false }) }
+  const sessions = { mainId: 's1', binding: () => binding }
+  let finishPage, signal
+  const remoteSession = {
+    events(_req, requestSignal) {
+      signal = requestSignal
+      return new Promise(resolve => { finishPage = resolve })
+    },
+  }
+  const ctrl = createFindController({ sessions, remoteSession })
+  try {
+    ctrl.openFind()
+    ctrl.setQuery('needle')
+    const scan = ctrl.startOrResumeScan()
+    const beforeBurst = ctrl.getSnapshot()
+    for (let seq = 3; seq < 23; seq++) {
+      const entry = makeMsgEvent(seq, 1, 'needle')
+      entries.push(entry)
+      eventSource.set({ entries: entries.slice(), hasMore: true, revision: seq, change: { kind: 'append', entries: [entry] } })
+    }
+    assert.equal(ctrl.getSnapshot(), beforeBurst)
+    await ctrl.navigate(1)
+    assert.equal(ctrl.getSnapshot().hits.length, entries.length)
+    const replacement = { entries: [makeMsgEvent(0, 0, 'new baseline')], hasMore: false, revision: 23 }
+    eventSource.set({ ...replacement, change: { kind: 'replace', entries: replacement.entries } })
+    assert.equal(signal.aborted, true)
+    finishPage({ ok: true, value: { cursor: 2, records: [0, 1].map(n => makeMsgEvent(n, 0, 'needle')), hasMore: false } })
+    await scan
+    assert.equal(ctrl.getSnapshot().hits.length, 0)
+    assert.equal(ctrl._cache.pages.size, 0)
+  } finally { ctrl.dispose() }
+})
+
+test('visible highlights stop creating ranges at the display limit inside a single block', () => {
+  const dom = createMockDom()
+  const { collectVisibleBlockRanges, pickVerifiedHitRange } = loadClientModule({ dom }).__internals
+  const flow = dom.el('div')
+  const node = dom.el('div', { 'data-chat-node-key': 'repeated' })
+  node.appendChild(dom.text('x'.repeat(2000)))
+  flow.appendChild(node)
+  const makeRange = dom.doc.createRange
+  let created = 0
+  dom.doc.createRange = () => { created++; return makeRange() }
+  assert.equal(collectVisibleBlockRanges(flow, null, 'x', true).length, 250)
+  assert.equal(created, 250)
+  const selected = pickVerifiedHitRange(node, { blockOrdinal: 1800 }, 'x', true, 2000)
+  assert.equal(selected.toString(), 'x')
+  assert.equal(created, 251, 'navigation only materializes the selected occurrence')
 })

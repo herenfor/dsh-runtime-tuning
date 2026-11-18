@@ -451,10 +451,10 @@ window.__ModuleLoader__.load({
         if (b.kind === 'turn/start' && Number.isSafeInteger(b.turn)) {
           if (!turnStartSeqs.has(b.turn)) turnStartSeqs.set(b.turn, b.seq)
           activeTurn = b.turn
-          spans.push({ seq: b.seq, turn: b.turn, open: true })
+          spans.push({ seq: b.seq, turn: activeTurn })
         } else if (b.kind === 'turn/end' && Number.isSafeInteger(b.turn)) {
           if (activeTurn === b.turn) activeTurn = undefined
-          spans.push({ seq: b.seq, turn: b.turn, open: false })
+          spans.push({ seq: b.seq, turn: activeTurn })
         }
       }
       return { turnStartSeqs, spans }
@@ -466,17 +466,20 @@ window.__ModuleLoader__.load({
         const start = turnStartSeqs.get(explicitTurn)
         return { turn: explicitTurn, turnStartSeq: start, pendingTurn: start === undefined }
       }
-      let turn
-      for (const sp of spans) {
-        if (sp.seq > seq) break
-        turn = sp.open ? sp.turn : (turn === sp.turn ? undefined : turn)
+      let lo = 0
+      let hi = spans.length
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi) / 2)
+        if (spans[mid].seq <= seq) lo = mid + 1
+        else hi = mid
       }
+      const turn = spans[lo - 1]?.turn
       const start = turn !== undefined ? turnStartSeqs.get(turn) : undefined
       return { turn, turnStartSeq: start, pendingTurn: turn === undefined || start === undefined }
     }
 
-    const assembleSearchableItems = (boundaries, rawItems, transientEntries) => {
-      const { turnStartSeqs, spans } = foldBoundaries(boundaries)
+    const assembleSearchableItems = (boundaries, rawItems, transientEntries, index = foldBoundaries(boundaries)) => {
+      const { turnStartSeqs, spans } = index
       const seenToolCalls = new Set()
       const seenPtcCalls = new Set()
       const compactionTexts = new Map()
@@ -574,7 +577,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const matchItems = (items, query, caseSensitive, includeExcerpts = true, sourceKinds = null) => {
+    const matchItems = (items, query, caseSensitive, { includeExcerpts = true, keepText = false, excerptKey, sourceKinds } = {}) => {
       const rx = compileLiteralRegex(query, caseSensitive)
       if (!rx) return []
       const hits = []
@@ -616,7 +619,8 @@ window.__ModuleLoader__.load({
               fieldOrdinal,
               blockOrdinal,
               matchText: m[0],
-              excerpt: includeExcerpts ? buildExcerpt(f.text, m.index, m[0].length) : null,
+              fieldText: keepText ? f.text : undefined,
+              excerpt: includeExcerpts || excerptKey === hitKey ? buildExcerpt(f.text, m.index, m[0].length) : null,
             })
             fieldOrdinal++
           }
@@ -630,16 +634,15 @@ window.__ModuleLoader__.load({
       let compactEvaluator = null
       const pages = new Map()
       const hitExcerpts = new Map()
-      const evictedRanges = []
       const totalCachedBytes = () => {
         let sum = 0
         for (const p of pages.values()) if (p.extracted) sum += p.extracted.byteSize
         return sum
       }
-      const evictIfNeeded = (protectKey) => {
+      const evictIfNeeded = () => {
         let sum = totalCachedBytes()
         if (sum <= maxBytes) return
-        const lru = [...pages.values()].filter((p) => p.extracted && p.pageKey !== protectKey).sort((a, b) => a.lruTick - b.lruTick)
+        const lru = [...pages.values()].filter((p) => p.extracted).sort((a, b) => a.lruTick - b.lruTick)
         for (const p of lru) {
           if (sum <= maxBytes) break
           if (!p.compactHitsValidForQuery && typeof compactEvaluator === 'function') {
@@ -649,7 +652,6 @@ window.__ModuleLoader__.load({
           sum -= p.extracted.byteSize
           p.extracted = null
           p.evicted = true
-          evictedRanges.push({ pageKey: p.pageKey, reqThroughSeq: p.reqThroughSeq, reqBeforeSeq: p.reqBeforeSeq, minSeq: p.minSeq, maxSeq: p.maxSeq })
         }
       }
       const putPage = (entry) => {
@@ -669,12 +671,11 @@ window.__ModuleLoader__.load({
           lruTick: tick,
         }
         pages.set(pageKey, rec)
-        evictIfNeeded(pageKey)
+        evictIfNeeded()
         return rec
       }
       return {
         get pages() { return pages },
-        get evictedRanges() { return evictedRanges },
         get hitExcerpts() { return hitExcerpts },
         totalCachedBytes,
         setCompactEvaluator(fn) { compactEvaluator = fn },
@@ -685,19 +686,18 @@ window.__ModuleLoader__.load({
           if (!p) return
           p.compactHits = hits.map((h) => ({ ...h, pageKey, excerpt: null }))
           p.compactHitsValidForQuery = true
-          for (const h of hits) if (h.excerpt) hitExcerpts.set(h.hitKey, h.excerpt)
         },
         pruneExcerpts(keepKeys) {
           for (const k of hitExcerpts.keys()) if (!keepKeys.has(k)) hitExcerpts.delete(k)
         },
-        clear() { pages.clear(); hitExcerpts.clear(); evictedRanges.length = 0 },
+        clear() { pages.clear(); hitExcerpts.clear() },
       }
     }
     const resolveSessionAddress = (sessionsSvc, binding, sessionId) => {
       const snapSub = binding?.session?.getSnapshot?.()?.subagent?.address
-      if (snapSub && typeof snapSub === 'object') return snapSub
+      if (snapSub && typeof snapSub === 'object') return { ...snapSub, kind: 'subagent' }
       const catalogSub = typeof sessionsSvc?.subagentAddress === 'function' ? sessionsSvc.subagentAddress(sessionId) : undefined
-      if (catalogSub && typeof catalogSub === 'object') return catalogSub
+      if (catalogSub && typeof catalogSub === 'object') return { ...catalogSub, kind: 'subagent' }
       return { kind: 'session', sessionId }
     }
 
@@ -735,7 +735,7 @@ window.__ModuleLoader__.load({
       if (!Number.isSafeInteger(cursor) || cursor < -1) return { ok: false, reason: 'invalid-cursor' }
       if (expectedThroughSeq !== undefined && cursor !== expectedThroughSeq) return { ok: false, reason: 'cursor-mismatch' }
       if (records.length === 0) {
-        if (hasMore) return { ok: false, reason: 'empty-with-more' }
+        if (hasMore || (expectedBeforeSeq === undefined && cursor >= 0)) return { ok: false, reason: 'empty-page-gap' }
         if (expectedBeforeSeq !== undefined && expectedBeforeSeq > 0) return { ok: false, reason: 'gap-before-zero' }
         return { ok: true, cursor, events: [], minSeq: null, maxSeq: null, hasMore: false }
       }
@@ -754,24 +754,25 @@ window.__ModuleLoader__.load({
         if (minSeq >= expectedBeforeSeq) return { ok: false, reason: 'no-progress' }
         if (maxSeq !== expectedBeforeSeq - 1) return { ok: false, reason: 'gap-at-upper-bound' }
       }
+      if (expectedBeforeSeq === undefined && maxSeq !== cursor) return { ok: false, reason: 'gap-at-cut' }
       if (!hasMore && minSeq > 0) return { ok: false, reason: 'stopped-before-zero' }
       return { ok: true, cursor, events, minSeq, maxSeq, hasMore }
     }
 
     const yieldThread = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-    const computeCombinedMatches = (cache, liveEntries, query, caseSensitive, selectedHitKey, sourceKinds = null) => {
+    const computeCombinedMatches = (cache, liveEntries, query, caseSensitive, sourceKinds = null) => {
       if (!query) return { hits: [], evictedPending: false }
       const { minSeq: liveMin, events: liveEvents, transients } = durableSeqBounds(liveEntries)
       const allBoundaries = []
       const liveExtracted = extractPageFromEvents(liveEvents)
-      allBoundaries.push(...liveExtracted.boundaries)
+      for (const boundary of liveExtracted.boundaries) allBoundaries.push(boundary)
       const activeRaw = []
       const evictedHits = []
       let evictedPending = false
       const sortedPages = [...cache.pages.values()].sort((a, b) => (a.minSeq ?? 0) - (b.minSeq ?? 0))
       for (const p of sortedPages) {
-        allBoundaries.push(...p.boundaries)
+        for (const boundary of p.boundaries) allBoundaries.push(boundary)
         if (liveMin !== null && p.minSeq !== null && p.minSeq >= liveMin) continue
         if (p.extracted) {
           for (const rec of p.extracted.rawItems) {
@@ -785,10 +786,11 @@ window.__ModuleLoader__.load({
           }
         }
       }
-      activeRaw.push(...liveExtracted.rawItems)
-      const items = assembleSearchableItems(allBoundaries, activeRaw, transients)
-      const { turnStartSeqs, spans } = foldBoundaries(allBoundaries)
-      const freshHits = matchItems(items, query, caseSensitive, true, sourceKinds)
+      for (const rec of liveExtracted.rawItems) activeRaw.push(rec)
+      const index = foldBoundaries(allBoundaries)
+      const items = assembleSearchableItems(allBoundaries, activeRaw, transients, index)
+      const { turnStartSeqs, spans } = index
+      const freshHits = matchItems(items, query, caseSensitive, { includeExcerpts: false, keepText: true, sourceKinds })
       for (const h of evictedHits) {
         const coord = resolveTurnAt(h.seq, h.turn, spans, turnStartSeqs)
         h.turn = coord.turn ?? h.turn
@@ -838,13 +840,14 @@ window.__ModuleLoader__.load({
       return { text: joined, segments }
     }
 
-    const rangeFromDomOffsets = (segments, start, end) => {
+    const rangeFromDomOffsets = (segments, start, end, firstSegment) => {
       if (!segments.length || typeof document === 'undefined' || typeof document.createRange !== 'function') return null
       let startNode = null
       let startOff = 0
       let endNode = null
       let endOff = 0
-      for (const seg of segments) {
+      for (let i = firstSegment; i < segments.length; i++) {
+        const seg = segments[i]
         if (!startNode && start >= seg.start && start < seg.end) {
           startNode = seg.node
           startOff = start - seg.start
@@ -866,45 +869,57 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const matchRangesInBlock = (rootEl, query, caseSensitive, excludedGroupParts = null) => {
+    const matchRangesInBlock = (rootEl, query, caseSensitive, excludedGroupParts = null, limit = Infinity) => {
       const rx = compileLiteralRegex(query, caseSensitive)
       if (!rx) return []
       const { text, segments } = collectBlockTextSegments(rootEl, excludedGroupParts)
       if (!text) return []
       const out = []
+      let segmentIndex = 0
       let m
-      while ((m = rx.exec(text)) !== null) {
-        if (m[0].length === 0) { rx.lastIndex++; continue }
-        const range = rangeFromDomOffsets(segments, m.index, m.index + m[0].length)
-        if (range) {
-          const checkRx = compileLiteralRegex(query, caseSensitive)
-          const verified = range.toString()
-          if (checkRx && checkRx.test(verified) && verified.length === m[0].length) {
-            out.push({ range, domOffset: m.index, domLength: m[0].length, domText: text })
-          }
+      while (out.length < limit && (m = rx.exec(text)) !== null) {
+        while (segments[segmentIndex].end <= m.index) segmentIndex++
+        const range = rangeFromDomOffsets(segments, m.index, m.index + m[0].length, segmentIndex)
+        if (range && range.toString() === m[0]) {
+          out.push({ range, domOffset: m.index, domLength: m[0].length, domText: text })
         }
       }
       return out
     }
 
     const pickVerifiedHitRange = (rootEl, hit, query, caseSensitive, blockHitTotal, excludedGroupParts = null) => {
-      const candidates = matchRangesInBlock(rootEl, query, caseSensitive, excludedGroupParts)
-      if (!candidates.length) return null
-      if (candidates.length === 1 && blockHitTotal <= 1) return candidates[0].range
-      const lc = (hit.excerpt?.leftContext || '').trim().slice(-8)
-      const rc = (hit.excerpt?.rightContext || '').trim().slice(0, 8)
-      const scored = candidates.map((c, idx) => {
+      const rx = compileLiteralRegex(query, caseSensitive)
+      if (!rx) return null
+      const { text, segments } = collectBlockTextSegments(rootEl, excludedGroupParts)
+      const left = (hit.excerpt?.leftContext || '').trim().slice(-8)
+      const right = (hit.excerpt?.rightContext || '').trim().slice(0, 8)
+      let count = 0
+      let bestScore = -1, bestOffset = -1, ties = 0
+      let ordinalScore = -1, ordinalOffset = -1
+      for (const match of text.matchAll(rx)) {
+        const start = match.index
+        const end = start + match[0].length
         let score = 0
-        const before = c.domText.slice(Math.max(0, c.domOffset - 16), c.domOffset).trim()
-        const after = c.domText.slice(c.domOffset + c.domLength, c.domOffset + c.domLength + 16).trim()
-        if (lc && before.endsWith(lc)) score += 3
-        if (rc && after.startsWith(rc)) score += 3
-        if (idx === hit.blockOrdinal && candidates.length === blockHitTotal) score += 2
-        return { range: c.range, score }
-      }).sort((a, b) => b.score - a.score)
-      if (scored[0].score === 0 && (candidates.length !== blockHitTotal || hit.blockOrdinal >= candidates.length)) return null
-      if (scored.length > 1 && scored[0].score === scored[1].score && candidates.length !== blockHitTotal) return null
-      return scored[0].range
+        if (left && text.slice(Math.max(0, start - 16), start).trim().endsWith(left)) score++
+        if (right && text.slice(end, end + 16).trim().startsWith(right)) score++
+        if (score > bestScore) {
+          bestScore = score
+          bestOffset = start
+          ties = 1
+        } else if (score === bestScore) ties++
+        if (count === hit.blockOrdinal) { ordinalScore = score; ordinalOffset = start }
+        count++
+      }
+      let offset = -1
+      if (count === blockHitTotal && ordinalScore === bestScore) offset = ordinalOffset
+      else if (bestScore > 0 && ties === 1) offset = bestOffset
+      if (offset < 0) return null
+      // Case folding may match a different number of UTF-16 code units than the query.
+      rx.lastIndex = offset
+      const matched = rx.exec(text)
+      if (!matched || matched.index !== offset) return null
+      const range = rangeFromDomOffsets(segments, offset, offset + matched[0].length, 0)
+      return range?.toString() === matched[0] ? range : null
     }
     const resolveMainConversationRoot = (doc, sessionId) => {
       if (!doc || !sessionId) return null
@@ -940,14 +955,16 @@ window.__ModuleLoader__.load({
         }
         if (all.length) return all
       }
-      if (Number.isSafeInteger(hit.turn)) {
-        const turnEls = []
-        for (const el of flow.querySelectorAll('[data-chat-turn]')) {
-          if (el.dataset?.chatTurn === String(hit.turn) && !el.closest('[hidden]')) turnEls.push(el)
-        }
-        if (turnEls.length) return turnEls
-      }
       return []
+    }
+
+    const findTurnAnchor = (flow, turn) => {
+      if (Number.isSafeInteger(turn)) {
+        for (const el of flow.querySelectorAll('[data-chat-turn]')) {
+          if (el.dataset?.chatTurn === String(turn) && !el.closest('[hidden]')) return el
+        }
+      }
+      return null
     }
 
     const waitDomCommit = (observeRoot, isStale, timeoutMs = 240, untilFn = null) => new Promise((resolve) => {
@@ -977,6 +994,8 @@ window.__ModuleLoader__.load({
     })
 
     const revealHiddenAncestors = async (flow, targetEl, hit, query, caseSensitive, blockHitTotal, isStale, excludedGroupParts = null) => {
+      if (!targetEl.closest?.('[hidden]') && pickVerifiedHitRange(targetEl, hit, query, caseSensitive, blockHitTotal, excludedGroupParts)) return targetEl
+      const currentTarget = () => flow.contains(targetEl) ? targetEl : findTargetNodeElements(flow, hit)[0]
       const hiddenChain = []
       let cur = targetEl
       while (cur && cur !== flow) {
@@ -992,7 +1011,7 @@ window.__ModuleLoader__.load({
         await waitDomCommit(flow, isStale, 900, () => hiddenChain.every((anc) => !anc.hasAttribute?.('hidden')))
         if (isStale()) return null
       }
-      let primary = findTargetNodeElements(flow, hit)[0] || targetEl
+      let primary = currentTarget()
       const innerHidden = [...(primary?.querySelectorAll?.('[hidden="until-found"]') || [])]
       if (innerHidden.length) {
         for (const h of innerHidden) {
@@ -1001,7 +1020,7 @@ window.__ModuleLoader__.load({
         }
         await waitDomCommit(primary, isStale, 600, () => innerHidden.every((h) => !h.hasAttribute?.('hidden')))
         if (isStale()) return null
-        primary = findTargetNodeElements(flow, hit)[0] || primary
+        primary = currentTarget() || primary
       }
       if (hit.nodeKey && primary && !pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal, excludedGroupParts)) {
         const toggles = [...primary.querySelectorAll('[aria-expanded="false"]')].filter((btn) => {
@@ -1015,12 +1034,12 @@ window.__ModuleLoader__.load({
             try { toggleBtn.click() } catch {}
             await waitDomCommit(primary, isStale, 450, () => !(typeof primary.contains === 'function' ? primary.contains(toggleBtn) : toggleBtn.isConnected) || toggleBtn.getAttribute('aria-expanded') !== 'false')
             if (isStale()) return null
-            primary = findTargetNodeElements(flow, hit)[0] || primary
+            primary = currentTarget() || primary
             if (pickVerifiedHitRange(primary, hit, query, caseSensitive, blockHitTotal, excludedGroupParts)) break
           }
         }
       }
-      return findTargetNodeElements(flow, hit)[0] || primary
+      return currentTarget() || null
     }
     const createHighlightManager = () => {
       let markedBlocks = []
@@ -1071,8 +1090,6 @@ window.__ModuleLoader__.load({
     const collectVisibleBlockRanges = (flow, scroller, query, caseSensitive, allowedTargets = null, excludedGroupParts = null) => {
       if (!flow || !query || typeof CSS === 'undefined' || !CSS.highlights) return []
       if (allowedTargets && allowedTargets.size === 0) return []
-      const rx = compileLiteralRegex(query, caseSensitive)
-      if (!rx) return []
       const sRect = scroller?.getBoundingClientRect?.()
       const topBound = sRect ? sRect.top - 400 : -400
       const botBound = sRect ? sRect.bottom + 400 : 2000
@@ -1090,7 +1107,7 @@ window.__ModuleLoader__.load({
         }
         const r = nodeEl.getBoundingClientRect?.()
         if (sRect && r && (r.bottom < topBound || r.top > botBound)) continue
-        for (const item of matchRangesInBlock(nodeEl, query, caseSensitive, excludedGroupParts)) {
+        for (const item of matchRangesInBlock(nodeEl, query, caseSensitive, excludedGroupParts, 250 - ranges.length)) {
           ranges.push(item.range)
           if (ranges.length >= 250) return ranges
         }
@@ -1158,7 +1175,7 @@ window.__ModuleLoader__.load({
       const enabledKinds = () => resolveEnabledSourceKinds(searchScope)
       const excludedParts = () => resolveExcludedGroupParts(enabledKinds())
       cache.setCompactEvaluator((p) => (
-        query ? matchItems(assembleSearchableItems(p.boundaries, p.extracted.rawItems, []), query, caseSensitive, false, enabledKinds()) : []
+        query ? matchItems(assembleSearchableItems(p.boundaries, p.extracted.rawItems, []), query, caseSensitive, { includeExcerpts: false, sourceKinds: enabledKinds() }) : []
       ))
       let hits = []
       let navigated = false
@@ -1175,6 +1192,7 @@ window.__ModuleLoader__.load({
       let scanAbort = null
       let scanGen = 0
       let navGen = 0
+      let navAbort = null
       let debounceTimer = null
       let cancelScrollTimer = () => {}
       let returnFocusEl = null
@@ -1182,6 +1200,7 @@ window.__ModuleLoader__.load({
       let platform = 'windows'
       let unbindSession = () => {}
       let blockRenderCounts = new Map()
+      let allowedDomTargets = new Set()
       let focusSeq = 0
 
       const t = (key, vars) => {
@@ -1216,6 +1235,11 @@ window.__ModuleLoader__.load({
         return Boolean(win?.hasMore)
       }
 
+      const prepareExcerpt = (hit) => {
+        if (!hit.excerpt) hit.excerpt = hit.fieldText !== undefined
+          ? buildExcerpt(hit.fieldText, hit.offset, hit.length) : cache.hitExcerpts.get(hit.hitKey) || null
+      }
+
       const refreshVisibleHighlights = (currentRange = null, fallbackEl = null) => {
         if (!open || !query || !activeSessionId || !doc) { hl.clear(); return }
         const mainRoot = resolveMainConversationRoot(doc, activeSessionId)
@@ -1223,7 +1247,7 @@ window.__ModuleLoader__.load({
         const exclParts = excludedParts()
         if (!currentRange && !fallbackEl && navigated && selectedIndex >= 0 && hits[selectedIndex]) {
           const active = hits[selectedIndex]
-          if (!active.excerpt) active.excerpt = cache.hitExcerpts.get(active.hitKey) || null
+          prepareExcerpt(active)
           const targets = findTargetNodeElements(mainRoot.flow, active)
           const sig = `${active.nodeKey || ''}|${active.groupPart || ''}`
           const blockTotal = blockRenderCounts.get(sig) || 1
@@ -1232,17 +1256,25 @@ window.__ModuleLoader__.load({
             const rng = pickVerifiedHitRange(el, active, query, caseSensitive, blockTotal, exclParts)
             if (rng) { currentRange = rng; break }
           }
-          if (!currentRange && fallbackNotice && targets[0] && !targets[0].closest?.('[hidden]')) fallbackEl = targets[0]
+          if (!currentRange && fallbackNotice) {
+            fallbackEl = targets.find(el => !el.closest?.('[hidden]')) || findTurnAnchor(mainRoot.flow, active.turn)
+          }
         }
         const scroller = findMainScroller(mainRoot.root, mainRoot.flow)
-        const visibleRanges = collectVisibleBlockRanges(mainRoot.flow, scroller, query, caseSensitive, buildAllowedDomTargets(hits), exclParts)
+        const visibleRanges = collectVisibleBlockRanges(mainRoot.flow, scroller, query, caseSensitive, allowedDomTargets, exclParts)
         hl.apply(visibleRanges, currentRange, fallbackEl)
       }
 
+      const cancelRefresh = () => {
+        if (debounceTimer !== null) clearTimeout(debounceTimer)
+        debounceTimer = null
+      }
       const recomputeLocal = () => {
-        if (!activeBinding || !query) {
+        cancelRefresh()
+        if (!open || !activeBinding || !query) {
           hits = []
-          blockRenderCounts = new Map()
+          allowedDomTargets.clear()
+          blockRenderCounts.clear()
           selectedIndex = -1
           navigated = false
           selectedHitKey = null
@@ -1253,8 +1285,9 @@ window.__ModuleLoader__.load({
         }
         const win = activeBinding.eventSource.getSnapshot()
         remoteHasMore = computeRemainingMore(win)
-        const res = computeCombinedMatches(cache, win?.entries || [], query, caseSensitive, selectedHitKey, enabledKinds())
+        const res = computeCombinedMatches(cache, win?.entries || [], query, caseSensitive, enabledKinds())
         hits = res.hits
+        allowedDomTargets = buildAllowedDomTargets(hits)
         hasEvictedPending = res.evictedPending
         blockRenderCounts = new Map()
         for (const h of hits) {
@@ -1275,6 +1308,11 @@ window.__ModuleLoader__.load({
         emit()
       }
 
+      // A burst of stream chunks or history pages needs only one search of the latest snapshot.
+      const scheduleRefresh = () => {
+        if (open && query && debounceTimer === null) debounceTimer = setTimeout(recomputeLocal, DEBOUNCE_MS)
+      }
+
       const abortScanOnly = () => {
         scanGen++
         if (scanAbort) { try { scanAbort.abort() } catch {} scanAbort = null }
@@ -1282,6 +1320,8 @@ window.__ModuleLoader__.load({
 
       const abortNavigationOnly = () => {
         navGen++
+        navAbort?.abort()
+        navAbort = null
         loadingTarget = false
         cancelScrollTimer()
         cancelScrollTimer = () => {}
@@ -1301,6 +1341,7 @@ window.__ModuleLoader__.load({
         query = nextQuery
         caseSensitive = nextCase
         queryGen++
+        cache.hitExcerpts.clear()
         abortScanOnly()
         abortNavigationOnly()
         navigated = false
@@ -1313,48 +1354,49 @@ window.__ModuleLoader__.load({
         }
         scanState = 'idle'
         scanError = null
-        if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null }
+        cancelRefresh()
         emit()
         if (!query) { recomputeLocal(); return }
-        debounceTimer = setTimeout(() => { debounceTimer = null; recomputeLocal() }, DEBOUNCE_MS)
+        scheduleRefresh()
       }
 
       const flushDebounce = () => {
-        if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null; recomputeLocal() }
+        if (debounceTimer !== null) recomputeLocal()
       }
 
-      const waitForLoadingOlderClear = (binding, isStale) => new Promise((resolve) => {
-        if (!binding.session.getSnapshot().loadingOlder || isStale()) return resolve()
-        const stop = binding.session.subscribe(() => {
-          if (!binding.session.getSnapshot().loadingOlder || isStale()) {
-            stop()
-            resolve()
-          }
+      const waitForLoadingOlderClear = (session, signal) => new Promise((resolve) => {
+        if (signal.aborted || !session.getSnapshot().loadingOlder) return resolve()
+        const finish = () => {
+          unsubscribe()
+          signal.removeEventListener('abort', finish)
+          resolve()
+        }
+        const unsubscribe = session.subscribe(() => {
+          if (!session.getSnapshot().loadingOlder) finish()
         })
+        signal.addEventListener('abort', finish, { once: true })
       })
 
-      const fetchEvictedExcerpt = async (hit, myNav) => {
+      const fetchEvictedExcerpt = async (hit, myNav, signal) => {
         if (!hit.pageKey || !remoteSession) return hit
         const page = cache.pages.get(hit.pageKey)
         if (!page) return hit
         cache.touch(hit.pageKey)
         if (page.extracted) {
           const items = assembleSearchableItems(page.boundaries, page.extracted.rawItems, [])
-          const matched = matchItems(items, query, caseSensitive, true, enabledKinds()).find((m) => m.hitKey === hit.hitKey)
+          const matched = matchItems(items, query, caseSensitive, { includeExcerpts: false, excerptKey: hit.hitKey, sourceKinds: enabledKinds() }).find((m) => m.hitKey === hit.hitKey)
           if (matched?.excerpt) { hit.excerpt = matched.excerpt; cache.hitExcerpts.set(hit.hitKey, matched.excerpt) }
           return hit
         }
-        const ac = new AbortController()
         const req = { address: resolveSessionAddress(sessions, activeBinding, activeSessionId), throughSeq: page.reqThroughSeq, ...(page.reqBeforeSeq === undefined ? {} : { beforeSeq: page.reqBeforeSeq }), ...DEFAULT_PAGE_OPTIONS }
-        const res = await callSessionPageRpc(remoteSession, req, ac.signal).catch(() => null)
+        const res = await callSessionPageRpc(remoteSession, req, signal).catch(() => null)
         if (disposed || navGen !== myNav) return hit
         const val = validatePageResult(res, page.reqThroughSeq, page.reqBeforeSeq)
         if (!val.ok) return hit
         const ext = extractPageFromEvents(val.events)
         const items = assembleSearchableItems(ext.boundaries, ext.rawItems, [])
-        const pageHits = matchItems(items, query, caseSensitive, true, enabledKinds())
+        const pageHits = matchItems(items, query, caseSensitive, { includeExcerpts: false, excerptKey: hit.hitKey, sourceKinds: enabledKinds() })
         cache.putPage({ minSeq: val.minSeq ?? 0, maxSeq: val.maxSeq ?? -1, reqThroughSeq: page.reqThroughSeq, reqBeforeSeq: page.reqBeforeSeq, extracted: ext, compactHits: pageHits, compactHitsValidForQuery: true })
-        for (const h of pageHits) if (h.excerpt) cache.hitExcerpts.set(h.hitKey, h.excerpt)
         const matched = pageHits.find((m) => m.hitKey === hit.hitKey)
         if (matched?.excerpt) { hit.excerpt = matched.excerpt; cache.hitExcerpts.set(hit.hitKey, matched.excerpt) }
         return hit
@@ -1389,8 +1431,7 @@ window.__ModuleLoader__.load({
         if (!activeSessionId || !activeBinding || isObstructed()) return false
         const sess = activeBinding.session?.getSnapshot?.()
         if (!sess || sess.removed) return false
-        const entries = activeBinding.eventSource?.getSnapshot?.()?.entries
-        if (sess.blank && (!entries || entries.length === 0)) return false
+        if (sess.blank && !activeBinding.eventSource?.getSnapshot?.()?.entries?.length) return false
         if (requireDom && doc && doc.querySelectorAll?.('[data-conversation-session]').length > 0) {
           if (!resolveMainConversationRoot(doc, activeSessionId)) return false
         }
@@ -1441,8 +1482,6 @@ window.__ModuleLoader__.load({
           const evictedToRescan = [...cache.pages.values()].filter((p) => p.evicted && !p.compactHitsValidForQuery).sort((a, b) => a.minSeq - b.minSeq)
           for (const p of evictedToRescan) {
             if (isStale()) return
-            await waitForLoadingOlderClear(activeBinding, isStale)
-            if (isStale()) return
             scanAbort = new AbortController()
             const req = { address: resolveSessionAddress(sessions, activeBinding, mySessionId), throughSeq: p.reqThroughSeq, ...(p.reqBeforeSeq === undefined ? {} : { beforeSeq: p.reqBeforeSeq }), ...DEFAULT_PAGE_OPTIONS }
             const res = await callSessionPageRpc(remoteSession, req, scanAbort.signal)
@@ -1451,8 +1490,8 @@ window.__ModuleLoader__.load({
             if (!val.ok) { scanState = 'error'; scanError = val.error || t('statusError'); scanAbort = null; emit(); return }
             const ext = extractPageFromEvents(val.events)
             p.boundaries = ext.boundaries
-            cache.setPageHits(p.pageKey, matchItems(assembleSearchableItems(ext.boundaries, ext.rawItems, []), myQuery, myCase, true, myKinds))
-            recomputeLocal()
+            cache.setPageHits(p.pageKey, matchItems(assembleSearchableItems(ext.boundaries, ext.rawItems, []), myQuery, myCase, { includeExcerpts: false, sourceKinds: myKinds }))
+            scheduleRefresh()
             await yieldThread()
           }
 
@@ -1467,8 +1506,6 @@ window.__ModuleLoader__.load({
             liveBounds = durableSeqBounds(winSnap?.entries || [])
             if (liveBounds.minSeq !== null && nextBeforeSeq !== undefined && nextBeforeSeq > liveBounds.minSeq) nextBeforeSeq = liveBounds.minSeq
             if (nextBeforeSeq !== undefined && nextBeforeSeq <= 0) { remoteHasMore = false; break }
-            await waitForLoadingOlderClear(activeBinding, isStale)
-            if (isStale()) return
             scanAbort = new AbortController()
             const req = {
               address: resolveSessionAddress(sessions, activeBinding, mySessionId),
@@ -1482,16 +1519,15 @@ window.__ModuleLoader__.load({
             if (!val.ok) { scanState = 'error'; scanError = val.error || t('statusError'); scanAbort = null; emit(); return }
             if (val.events.length > 0) {
               const ext = extractPageFromEvents(val.events)
-              if (pinnedThroughSeq === undefined && val.maxSeq !== null) pinnedThroughSeq = val.maxSeq
-              const pageHits = matchItems(assembleSearchableItems(ext.boundaries, ext.rawItems, []), myQuery, myCase, false, myKinds)
+              if (pinnedThroughSeq === undefined) pinnedThroughSeq = val.cursor
               cache.putPage({
                 minSeq: val.minSeq, maxSeq: val.maxSeq, reqThroughSeq: pinnedThroughSeq ?? val.maxSeq,
-                reqBeforeSeq: nextBeforeSeq, extracted: ext, compactHits: pageHits, compactHitsValidForQuery: true,
+                reqBeforeSeq: nextBeforeSeq, extracted: ext,
               })
               nextBeforeSeq = val.minSeq
             }
             remoteHasMore = Boolean(val.hasMore) && (nextBeforeSeq === undefined || nextBeforeSeq > 0)
-            recomputeLocal()
+            scheduleRefresh()
             canPullMore = remoteHasMore && (nextBeforeSeq === undefined || nextBeforeSeq > 0)
             if (canPullMore) await yieldThread()
           }
@@ -1514,6 +1550,7 @@ window.__ModuleLoader__.load({
       const pauseScan = () => {
         if (scanState !== 'scanning') return
         abortScanOnly()
+        flushDebounce()
         scanState = (remoteHasMore || hasEvictedPending) ? 'paused' : 'done'
         emit()
       }
@@ -1521,7 +1558,9 @@ window.__ModuleLoader__.load({
       const jumpToHit = async (index) => {
         if (!activeBinding || index < 0 || index >= hits.length) return
         abortNavigationOnly()
-        const myNav = ++navGen
+        navAbort = new AbortController()
+        const signal = navAbort.signal
+        const myNav = navGen
         const myQueryGen = queryGen
         const isStale = () => disposed || navGen !== myNav || queryGen !== myQueryGen
         const hit = hits[index]
@@ -1532,36 +1571,54 @@ window.__ModuleLoader__.load({
         pruneAround(index)
         emit()
 
-        if (!hit.excerpt) hit.excerpt = cache.hitExcerpts.get(hit.hitKey) || null
-        if (!hit.excerpt && hit.pageKey) { await fetchEvictedExcerpt(hit, myNav); if (isStale()) return }
+        prepareExcerpt(hit)
+        if (!hit.excerpt && hit.pageKey) { await fetchEvictedExcerpt(hit, myNav, signal); if (isStale()) return }
 
         const initialBounds = durableSeqBounds(activeBinding.eventSource.getSnapshot()?.entries || [])
         if (hit.durable !== false && (initialBounds.minSeq === null || hit.seq < initialBounds.minSeq)) {
           loadingTarget = true
           emit()
-          let prevMin = initialBounds.minSeq
-          let stagnant = 0
-          for (let step = 0; step < 40 && !isStale(); step++) {
-            const win = activeBinding.eventSource.getSnapshot()
-            const bounds = durableSeqBounds(win?.entries || [])
-            const sessSnap = activeBinding.session.getSnapshot()
-            if (bounds.minSeq !== null && hit.seq >= bounds.minSeq) break
-            if ((!win?.hasMore && !sessSnap?.hasMore) || typeof activeBinding.session.loadOlder !== 'function') break
-            if (sessSnap?.loadingOlder) await waitForLoadingOlderClear(activeBinding, isStale)
-            else await activeBinding.session.loadOlder()
-            if (isStale()) return
-            const afterMin = durableSeqBounds(activeBinding.eventSource.getSnapshot()?.entries || []).minSeq
-            if (afterMin === prevMin) { if (++stagnant >= 2) break } else { stagnant = 0; prevMin = afterMin }
-            await yieldThread()
+          const { session, eventSource } = activeBinding
+          const targetSeq = hit.turnStartSeq ?? hit.seq
+          let minSeq = initialBounds.minSeq
+          try {
+            while (!isStale() && (minSeq === null || minSeq > targetSeq)) {
+              if (session.getSnapshot().loadingOlder) await waitForLoadingOlderClear(session, signal)
+              if (isStale()) return
+              if (typeof session.loadThrough === 'function') await session.loadThrough(targetSeq)
+              else if (typeof session.loadOlder === 'function') await session.loadOlder()
+              else break
+              if (isStale()) return
+              const win = eventSource.getSnapshot()
+              const nextMin = durableSeqBounds(win.entries).minSeq
+              if (nextMin === null || (minSeq !== null && nextMin >= minSeq)) break
+              minSeq = nextMin
+              if (typeof session.loadThrough === 'function' || !win.hasMore) break
+            }
+          } catch {
+            // The Host may have published a partial page before the load failed.
           }
-          loadingTarget = false
           if (isStale()) return
+          loadingTarget = false
+          if (!eventSource.getSnapshot().entries.some(entry => entry.type === 'event' && entry.event.seq === hit.seq)) {
+            fallbackNotice = t('fallbackHidden')
+            refreshVisibleHighlights()
+            emit()
+            return
+          }
         }
 
         const mainRoot = resolveMainConversationRoot(doc, activeSessionId)
         let targets = mainRoot ? findTargetNodeElements(mainRoot.flow, hit) : []
         if (!targets.length && mainRoot) { await waitDomCommit(mainRoot.flow, isStale, 150); if (isStale()) return; targets = findTargetNodeElements(mainRoot.flow, hit) }
-        if (!targets.length) { fallbackNotice = t('fallbackHidden'); refreshVisibleHighlights(); emit(); return }
+        if (!targets.length) {
+          const anchor = mainRoot && findTurnAnchor(mainRoot.flow, hit.turn)
+          fallbackNotice = t(anchor ? 'fallbackTurn' : 'fallbackHidden')
+          refreshVisibleHighlights(null, anchor)
+          if (anchor) cancelScrollTimer = scrollToMatchTarget(mainRoot.root, mainRoot.flow, anchor, null, isStale)
+          emit()
+          return
+        }
 
         const sig = `${hit.nodeKey || ''}|${hit.groupPart || ''}`
         const blockTotal = blockRenderCounts.get(sig) || 1
@@ -1576,7 +1633,7 @@ window.__ModuleLoader__.load({
           if (!primary && revealed) primary = revealed
         }
         if (!verifiedRange && primary) {
-          fallbackNotice = t('fallbackHidden')
+          fallbackNotice = t('fallbackTurn')
           refreshVisibleHighlights(null, primary)
           cancelScrollTimer = scrollToMatchTarget(mainRoot.root, mainRoot.flow, primary, null, isStale)
         } else if (verifiedRange) {
@@ -1611,7 +1668,7 @@ window.__ModuleLoader__.load({
         if (!open) return
         const focusBack = returnFocusEl
         returnFocusEl = null
-        if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null }
+        cancelRefresh()
         abortNavigationOnly()
         resetScanCursor()
         open = false
@@ -1621,6 +1678,8 @@ window.__ModuleLoader__.load({
         selectedHitKey = null
         fallbackNotice = null
         hits = []
+        allowedDomTargets.clear()
+        blockRenderCounts.clear()
         detachScrollerListener()
         hl.clear()
         emit()
@@ -1660,14 +1719,19 @@ window.__ModuleLoader__.load({
               const win = nextBinding.eventSource.getSnapshot()
               if (!win || win.revision !== lastRevision) {
                 lastRevision = win?.revision ?? -1
-                if (open) recomputeLocal()
+                if (win?.change?.kind === 'replace') {
+                  resetScanCursor()
+                  abortNavigationOnly()
+                  if (open) recomputeLocal()
+                } else scheduleRefresh()
               }
             })
             const unSubSess = nextBinding.session.subscribe(() => {
               if (nextBinding.session?.getSnapshot?.()?.removed) {
                 resetScanCursor(); abortNavigationOnly(); activeBinding = null
                 unbindSession(); unbindSession = () => {}
-                open = false; scopeMenuOpen = false; detachScrollerListener(); hl.clear(); emit()
+                if (open) closeFind(false)
+                else emit()
               }
             })
             unbindSession = () => { unSubEvt(); unSubSess() }
@@ -1694,7 +1758,7 @@ window.__ModuleLoader__.load({
       }
 
       const canOpenShortcut = (scCtx) => {
-        if (scCtx && scCtx.modal !== null && scCtx.modal !== undefined) return false
+        if (scCtx?.modal != null || scCtx?.region === 'terminal' || ['iframe', 'webview'].includes(scCtx?.source)) return false
         return isActiveMainReady(true)
       }
 
@@ -1702,7 +1766,7 @@ window.__ModuleLoader__.load({
         if (runtime !== 'web' || !isActiveMainReady(true)) return false
         const el = target?.nodeType === 1 ? target : target?.parentElement
         if (!el) return true
-        if (el.closest?.('[role="dialog"], [aria-modal="true"], [data-global-panel], [inert], [data-rightbar-fullscreen]')) return false
+        if (el.closest?.('[role="dialog"], [aria-modal="true"], [data-global-panel], [inert], [data-rightbar-fullscreen], .xterm, iframe, webview')) return false
         if (el.closest?.('[data-tune-find-root]')) return true
         const isEditable = el.matches?.('input, textarea, select') || Boolean(el.isContentEditable) || Boolean(el.closest?.('[contenteditable="true"], [contenteditable=""]'))
         if (isEditable && !el.closest?.('[data-conversation-session]')) return false
@@ -1712,6 +1776,7 @@ window.__ModuleLoader__.load({
       const applyScope = (nextScope) => {
         searchScope = normalizeSearchScope(nextScope)
         queryGen++
+        cache.hitExcerpts.clear()
         const prevScan = scanState
         abortScanOnly()
         abortNavigationOnly()
@@ -1758,7 +1823,7 @@ window.__ModuleLoader__.load({
       const dispose = () => {
         if (disposed) return
         disposed = true
-        if (debounceTimer !== null) { clearTimeout(debounceTimer); debounceTimer = null }
+        cancelRefresh()
         abortScanOnly()
         abortNavigationOnly()
         unbindSession()
@@ -2260,7 +2325,7 @@ window.__ModuleLoader__.load({
       const controller = createFindController({ sessions: ctx.sessions, layout: ctx.layout, locale: ctx.locale })
       const stopList = ctx.sessions?.list?.subscribe ? ctx.sessions.list.subscribe(() => controller.syncMainSession()) : null
       const stopPanel = ctx.layout?.panelInfo?.subscribe ? ctx.layout.panelInfo.subscribe(() => {
-        if (ctx.layout.panelInfo.getSnapshot()?.activePanelId !== null) controller.refreshVisibleHighlights()
+        if (ctx.layout.panelInfo.getSnapshot()?.activePanelId != null) controller.closeFind(false)
       }) : null
 
       const ui = createFindComponents(controller)
