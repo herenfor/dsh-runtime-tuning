@@ -291,7 +291,7 @@ const createMockDom = () => {
   return { doc, win, el: doc.el, text: doc.text, body, head, html, CSS: { highlights }, Highlight, Event: class { constructor(t) { this.type = t } }, MutationObserver: MockMutationObserver, getComputedStyle: () => ({ overflowY: 'auto' }) }
 }
 
-const loadClientModule = ({ dom = null, react = null } = {}) => {
+const loadClientModule = ({ dom = null, react = null, primitives = null } = {}) => {
   let loaded = null
   const windowObj = dom ? dom.win : {}
   const ctx = {
@@ -310,6 +310,7 @@ const loadClientModule = ({ dom = null, react = null } = {}) => {
     URL,
     require: (id) => {
       if (id === 'react') return react || undefined
+      if (id === '@deepseek-ai/dsh-client-ui-primitives') return primitives
       throw new Error(`Unexpected require: ${id}`)
     },
   }
@@ -760,7 +761,7 @@ test('T7: tool disclosure auto-expands or shows excerpt fallback, session switch
   await new Promise((r) => setTimeout(r, 220))
   assert.equal(clicked, true, 'expanded collapsed tool disclosure once')
   assert.ok(ctrl.getSnapshot().fallbackNotice, 'unrenderable text shows fallback notice + excerpt')
-  assert.equal(toolNode.getAttribute('data-tune-find-block'), 'active', 'fallback outlines block')
+  assert.equal(toolNode.hasAttribute('data-tune-find-block'), false, 'excerpt fallback leaves the message unpainted')
 
   const ui = createFindComponents(ctrl)
   const vdom = react._render(ui.FindBarOverlay, { controller: ctrl })
@@ -1093,4 +1094,46 @@ test('visible highlights stop creating ranges at the display limit inside a sing
   const selected = pickVerifiedHitRange(node, { blockOrdinal: 1800 }, 'x', true, 2000)
   assert.equal(selected.toString(), 'x')
   assert.equal(created, 251, 'navigation only materializes the selected occurrence')
+})
+
+test('file links count visible labels and navigate to the matching suffix inside each button', async () => {
+  const dom = createMockDom()
+  const source = '[one.html](./reports/one.html) / [two.html](./reports/two.html)'
+  const primitives = { extractMarkdownPlainText(text) {
+    assert.equal(text, source)
+    return 'one.html / two.html'
+  } }
+  const { createFindController } = loadClientModule({ dom, primitives }).__internals
+  const root = dom.body.appendChild(dom.el('div', { 'data-conversation-session': 's1' }))
+  const flow = root.appendChild(dom.el('div', { 'data-chat-flow': 'true' }))
+  const part = flow.appendChild(dom.el('div', { 'data-chat-node-key': '14:assistant-step1:1', 'data-chat-group-part': 'response' }))
+  const addLink = (name, top) => {
+    const button = part.appendChild(dom.el('button', { className: '_fileMention_test_92 _fileLink_test_59' }))
+    const label = button.appendChild(dom.el('span'))
+    label._rect.top = top
+    label.appendChild(dom.text(name))
+  }
+  addLink('one.html', 20)
+  part.appendChild(dom.text(' / '))
+  addLink('two.html', 80)
+  part.appendChild(dom.el('button')).appendChild(dom.text('Copy html'))
+  const entry = makeMsgEvent(1, 1, source, 'response')
+  const session = createObservable({ sessionId: 's1', blank: false, removed: false, hasMore: false })
+  const eventSource = createObservable({ entries: [entry], hasMore: false, revision: 1 })
+  const sessions = { list: createObservable({ byId: { s1: { id: 's1', retainedBy: { mainView: 1 } } } }), binding: () => ({ session, eventSource }) }
+  const ctrl = createFindController({ sessions, layout: { panelInfo: createObservable({ activePanelId: null }) }, doc: dom.doc })
+  try {
+    ctrl.openFind()
+    ctrl.setQuery('html')
+    ctrl.recomputeLocal()
+    assert.equal(ctrl.getSnapshot().hits.length, 2)
+    for (const top of [20, 80]) {
+      await ctrl.navigate(1)
+      const range = dom.CSS.highlights.get('dsh-tune-find-current').ranges[0]
+      assert.equal(range.toString(), 'html')
+      assert.equal(range.getBoundingClientRect().top, top)
+      assert.equal(dom.CSS.highlights.get('dsh-tune-find-match').ranges.length, 2)
+      assert.equal(ctrl.getSnapshot().fallbackNotice, null)
+    }
+  } finally { ctrl.dispose() }
 })

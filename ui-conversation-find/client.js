@@ -161,7 +161,6 @@ window.__ModuleLoader__.load({
 .TCF_trig:hover,.TCF_trig:focus-visible{color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.12))}
 ::highlight(${HIGHLIGHT_ALL}){background-color:rgba(250,204,21,.34);color:inherit}
 ::highlight(${HIGHLIGHT_CURRENT}){background-color:rgba(249,115,22,.58);color:#fff}
-[data-tune-find-block="active"]{outline:2px solid rgba(249,115,22,.72);outline-offset:2px;border-radius:8px;background-color:rgba(250,204,21,.10)}
 `
     const ensureStyle = () => {
       if (typeof document === 'undefined') return () => {}
@@ -252,6 +251,21 @@ window.__ModuleLoader__.load({
       fields.push({ fieldKey, text, ...(extra || {}) })
     }
 
+    let prim
+    try { prim = require('@deepseek-ai/dsh-client-ui-primitives') } catch {}
+    const replyTextCache = new WeakMap()
+    const searchableReplyText = (block) => {
+      const text = block.text
+      // Use the host parser for Markdown links, including references and literal code examples.
+      if (typeof text !== 'string' || !text.includes('[') || !text.includes(']') || !prim?.extractMarkdownPlainText) return text
+      if (!replyTextCache.has(block)) {
+        let visibleText = text
+        try { visibleText = prim.extractMarkdownPlainText(text) } catch { /* Keep malformed replies searchable. */ }
+        replyTextCache.set(block, visibleText)
+      }
+      return replyTextCache.get(block)
+    }
+
     const extractDurableEvent = (event) => {
       if (!event || typeof event !== 'object' || !Number.isSafeInteger(event.seq) || event.seq < 0) return null
       const seq = event.seq
@@ -313,7 +327,7 @@ window.__ModuleLoader__.load({
         content.forEach((b, idx) => {
           if (!b || typeof b !== 'object') return
           if (b.type === 'reasoning') pushField(fields, `reasoning:${idx}`, b.text, { groupPart: 'reasoning', sourceKind: 'reasoning' })
-          else if (b.type === 'text') pushField(fields, `text:${idx}`, b.text, { groupPart: 'response', sourceKind: 'response' })
+          else if (b.type === 'text') pushField(fields, `text:${idx}`, searchableReplyText(b), { groupPart: 'response', sourceKind: 'response' })
           else if (b.type === 'tool-call' && b.id !== undefined) fallbackTools.push({ callId: String(b.id), name: b.name || '', argsRaw: stringifyArgs(b.arguments) })
         })
         return { rec: { seq, linkKind: 'assistant', stableId: `asst:${turn}:${step}`, nodeKind: 'assistant-step', nodeId: `${turn}:${step}`, sourceKind: 'response', explicitTurn: turn, explicitStep: step, fields, fallbackTools } }
@@ -535,7 +549,7 @@ window.__ModuleLoader__.load({
         for (const idx of indices) {
           const b = st.blocks.get(idx)
           if (b && (b.kind === 'reasoning' || b.kind === 'text') && b.text) {
-            pushField(fields, `${b.kind}:${idx}`, b.text, { groupPart: b.kind === 'reasoning' ? 'reasoning' : 'response', sourceKind: b.kind === 'reasoning' ? 'reasoning' : 'response' })
+            pushField(fields, `${b.kind}:${idx}`, b.kind === 'text' ? searchableReplyText(b) : b.text, { groupPart: b.kind === 'reasoning' ? 'reasoning' : 'response', sourceKind: b.kind === 'reasoning' ? 'reasoning' : 'response' })
           }
         }
         if (fields.length) {
@@ -804,7 +818,9 @@ window.__ModuleLoader__.load({
       let cur = node.parentElement
       while (cur && cur !== rootEl) {
         const tag = cur.tagName
-        if (tag === 'BUTTON' || tag === 'SVG' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return true
+        // DSH renders file links and inline file mentions as buttons with CSS-module classes.
+        if (tag === 'BUTTON' && !cur.hasAttribute('data-ref-chip') && !/(?:^|\s)_?(?:fileLink|fileMention)(?:_|\s|$)/.test(cur.className)) return true
+        if (tag === 'svg' || tag === 'SVG' || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT') return true
         if (cur.hasAttribute('hidden') || cur.getAttribute('aria-hidden') === 'true') return true
         if (cur.hasAttribute('data-text-interaction-surface') || cur.hasAttribute('data-chat-node-key')) return true
         if (excludedGroupParts && excludedGroupParts.size) {
@@ -1042,21 +1058,13 @@ window.__ModuleLoader__.load({
       return currentTarget() || null
     }
     const createHighlightManager = () => {
-      let markedBlocks = []
-      const clearBlocks = () => {
-        for (const el of markedBlocks) {
-          try { el?.removeAttribute?.('data-tune-find-block') } catch {}
-        }
-        markedBlocks = []
-      }
       const clear = () => {
-        clearBlocks()
         if (typeof CSS !== 'undefined' && CSS.highlights) {
           try { CSS.highlights.delete(HIGHLIGHT_ALL) } catch {}
           try { CSS.highlights.delete(HIGHLIGHT_CURRENT) } catch {}
         }
       }
-      const apply = (visibleRanges, currentRange, fallbackEl) => {
+      const apply = (visibleRanges, currentRange) => {
         clear()
         const hasCssHl = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight === 'function'
         if (hasCssHl) {
@@ -1066,9 +1074,6 @@ window.__ModuleLoader__.load({
           if (currentRange) {
             try { CSS.highlights.set(HIGHLIGHT_CURRENT, new Highlight(currentRange)) } catch {}
           }
-        }
-        if ((!hasCssHl || !currentRange) && fallbackEl) {
-          try { fallbackEl.setAttribute('data-tune-find-block', 'active'); markedBlocks.push(fallbackEl) } catch {}
         }
       }
       return { clear, apply }
@@ -1240,12 +1245,12 @@ window.__ModuleLoader__.load({
           ? buildExcerpt(hit.fieldText, hit.offset, hit.length) : cache.hitExcerpts.get(hit.hitKey) || null
       }
 
-      const refreshVisibleHighlights = (currentRange = null, fallbackEl = null) => {
+      const refreshVisibleHighlights = (currentRange) => {
         if (!open || !query || !activeSessionId || !doc) { hl.clear(); return }
         const mainRoot = resolveMainConversationRoot(doc, activeSessionId)
         if (!mainRoot) { hl.clear(); return }
         const exclParts = excludedParts()
-        if (!currentRange && !fallbackEl && navigated && selectedIndex >= 0 && hits[selectedIndex]) {
+        if (currentRange === undefined && navigated && selectedIndex >= 0 && hits[selectedIndex]) {
           const active = hits[selectedIndex]
           prepareExcerpt(active)
           const targets = findTargetNodeElements(mainRoot.flow, active)
@@ -1256,13 +1261,10 @@ window.__ModuleLoader__.load({
             const rng = pickVerifiedHitRange(el, active, query, caseSensitive, blockTotal, exclParts)
             if (rng) { currentRange = rng; break }
           }
-          if (!currentRange && fallbackNotice) {
-            fallbackEl = targets.find(el => !el.closest?.('[hidden]')) || findTurnAnchor(mainRoot.flow, active.turn)
-          }
         }
         const scroller = findMainScroller(mainRoot.root, mainRoot.flow)
         const visibleRanges = collectVisibleBlockRanges(mainRoot.flow, scroller, query, caseSensitive, allowedDomTargets, exclParts)
-        hl.apply(visibleRanges, currentRange, fallbackEl)
+        hl.apply(visibleRanges, currentRange)
       }
 
       const cancelRefresh = () => {
@@ -1614,7 +1616,7 @@ window.__ModuleLoader__.load({
         if (!targets.length) {
           const anchor = mainRoot && findTurnAnchor(mainRoot.flow, hit.turn)
           fallbackNotice = t(anchor ? 'fallbackTurn' : 'fallbackHidden')
-          refreshVisibleHighlights(null, anchor)
+          refreshVisibleHighlights(null)
           if (anchor) cancelScrollTimer = scrollToMatchTarget(mainRoot.root, mainRoot.flow, anchor, null, isStale)
           emit()
           return
@@ -1634,10 +1636,10 @@ window.__ModuleLoader__.load({
         }
         if (!verifiedRange && primary) {
           fallbackNotice = t('fallbackTurn')
-          refreshVisibleHighlights(null, primary)
+          refreshVisibleHighlights(null)
           cancelScrollTimer = scrollToMatchTarget(mainRoot.root, mainRoot.flow, primary, null, isStale)
         } else if (verifiedRange) {
-          refreshVisibleHighlights(verifiedRange, null)
+          refreshVisibleHighlights(verifiedRange)
           cancelScrollTimer = scrollToMatchTarget(mainRoot.root, mainRoot.flow, primary, verifiedRange, isStale)
         }
         emit()
@@ -1868,9 +1870,7 @@ window.__ModuleLoader__.load({
 
     const loadReactDeps = () => {
       let React = null
-      let prim = null
       try { React = require('react') } catch {}
-      try { prim = require('@deepseek-ai/dsh-client-ui-primitives') } catch {}
       return { React, prim }
     }
 
