@@ -256,8 +256,8 @@ window.__ModuleLoader__.load({
     const replyTextCache = new WeakMap()
     const searchableReplyText = (block) => {
       const text = block.text
-      // Use the host parser for Markdown links, including references and literal code examples.
-      if (typeof text !== 'string' || !text.includes('[') || !text.includes(']') || !prim?.extractMarkdownPlainText) return text
+      // Index the same visible words even when Markdown splits a filename across inline elements.
+      if (typeof text !== 'string' || !prim?.extractMarkdownPlainText) return text
       if (!replyTextCache.has(block)) {
         let visibleText = text
         try { visibleText = prim.extractMarkdownPlainText(text) } catch { /* Keep malformed replies searchable. */ }

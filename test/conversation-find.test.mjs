@@ -1137,3 +1137,25 @@ test('file links count visible labels and navigate to the matching suffix inside
     }
   } finally { ctrl.dispose() }
 })
+
+test('formatted filenames are searchable across text nodes in streaming and settled replies', () => {
+  const dom = createMockDom()
+  const markdown = 'report.**html**'
+  const filename = 'report.html'
+  const primitives = { extractMarkdownPlainText: text => text === markdown ? filename : text }
+  const { extractPageFromEvents, assembleSearchableItems, matchItems, pickVerifiedHitRange } =
+    loadClientModule({ dom, primitives }).__internals
+  const event = makeMsgEvent(1, 1, markdown, 'response').event
+  const settled = extractPageFromEvents([event])
+  const delta = { type: 'text-delta', index: 0, text: markdown }
+  const live = { type: 'transient', event: { type: 'assistant/live-chunk', seq: 1, data: { attemptId: 'a', turn: 1, step: 1, chunk: delta } } }
+  const part = dom.el('div')
+  part.appendChild(dom.text('report.'))
+  part.appendChild(dom.el('strong')).appendChild(dom.text('html'))
+  for (const items of [assembleSearchableItems([], [], [live]), assembleSearchableItems([], settled.rawItems, [])]) {
+    const hits = matchItems(items, filename, true)
+    assert.equal(hits.length, 1)
+    assert.equal(pickVerifiedHitRange(part, hits[0], filename, true, hits.length)?.toString(), filename)
+    assert.equal(matchItems(items, '**', true).length, 0)
+  }
+})
