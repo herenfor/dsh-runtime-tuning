@@ -1,6 +1,6 @@
 {
   "name": "@herenfor/dsh-tune",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "type": "module",
   "dsh": {
     "bundle": {
@@ -37,6 +37,8 @@
     "ui-chat/index.mjs",
     "ui-sidebar-open",
     "ui-conversation-find",
+    "ui-worktree",
+    "ui-worktree-manage",
     "docs",
     "cordis.patch.yml",
     "CHANGELOG.md",

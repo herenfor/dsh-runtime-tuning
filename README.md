@@ -14,9 +14,9 @@ DeepSeek Harness 运行调优插件 · `@herenfor/dsh-tune`
 
 </div>
 
-让 DeepSeek Harness 更适合真实工程与长程任务：审批卡精简清晰、提问和等待不再卡死进程、长任务自动提醒进展与收尾、模型可在右侧栏自主打开网页或文件供即时预览、对话内支持 `Ctrl+F` 全历史正文查找，并提供「协作」与「调优」两个可选预设。
+让 DeepSeek Harness 更适合真实工程与长程任务：审批卡精简清晰、提问和等待不再卡死进程、长任务自动提醒进展与收尾、模型可在右侧栏自主打开网页或文件供即时预览、对话内支持 `Ctrl+F` 全历史正文查找、提供 Git Worktree 树可视化与安全管理，并提供「协作」与「调优」两个可选预设。
 
-> **生效范围说明**：常规增强（审批、等待、提问、进展提醒、表格与回答修复、凭据保护、`open_sidebar` 侧栏预览、对话内查找）**安装即自动生效**，无需切换预设；`collaborative`（「协作」）可在新建会话时按需选用，`tuned`（「调优」）默认关闭，需在配置启用。
+> **生效范围说明**：常规增强（审批、等待、提问、进展提醒、表格与回答修复、凭据保护、`open_sidebar` 侧栏预览、对话内查找、Git Worktree 可视化与管理、Responses 流式文本补完）**安装即自动生效**，无需切换预设；`collaborative`（「协作」）可在新建会话时按需选用，`tuned`（「调优」）默认关闭，需在配置启用。
 
 <a id="快速开始"></a>
 
@@ -44,6 +44,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | --- | --- | --- | --- |
 | **审批看懂再点** | 长命令与原始 JSON 参数占满卡片，核心目的不直观 | 收敛为「申请原因 + 权限范围」两行纯文本，保留原生按钮、黄色等待条、风险提示与审批后参数完整性校验；格式不合格自动回退原生卡片 | 默认开启 · `approval-info` / `ui-chat` |
 | **模型自主侧栏预览** | 模型生成 HTML、报告、图片或启动服务后，需用户手动找文件或复制 URL | 新增 `open_sidebar` 工具：模型可直接在当前在屏会话的右侧栏打开工作区/本地文件（支持行号、`sidebar`/`float`）或 HTTP(S) 网页；后台会话切回时补开一次，刷新/翻历史不重弹 | 默认开启 · `ui-sidebar-open` |
+| **Git Worktree 树与管理** | 多 Worktree 派生与提交分叉缺乏直观全局视图；手动切分支易混入未完成修改 | 右侧栏与顶栏分支徽章提供只读 Worktree 树 + Commit 分叉图、自由选目录/文件夹浏览、一键新建/Fork 会话、双门禁无 `--force` 安全删除，以及新对话窗口内一键启用首条消息自动切入隔离 Worktree | 默认开启 · `ui-worktree` / `ui-worktree-manage` |
 | **对话内全历史查找** | Desktop 缺失 `Ctrl+F` 找对话历史，长对话未加载更早轮次时浏览器原生查找够不到，全历史常混入大量工具/Bash 噪声 | 主对话右上栏提供放大镜按钮，Desktop 注册 `Ctrl+F`/`Cmd+F`、Web 注册 `Ctrl+Alt+F`/`Cmd+Alt+F`（可选开关接管 Web `Ctrl+F`）；浮窗支持拖拽移动、边界钳制、位置记忆与双击复位；默认仅搜用户提问与助手回复正文，思考过程、工具/Bash 与系统上下文等可在范围按钮或浮窗右键菜单按需勾选，支持向后增量全历史扫描（8 MiB 分页缓存）与跳转定位 | 默认开启 · `ui-conversation-find` |
 | **慢任务与提问不阻塞** | `sleep` / `job_output` 容易卡住整轮，提问需干等回答，后台任务常遗漏 | 超长前台等待自动封顶转后台；`ask_user_question` 超时先返回 `pending` 以便继续并行；`task_status` 声明状态、结束前清点遗漏后台任务并设兜底唤醒；沙箱与文件工具共享会话 `/tmp` | 默认开启 · `wait-guard` / `ask-nonblocking` / `session-tmp` |
 | **长任务有进展、有收尾** | 连续数十步无正文汇报、todo 只写不管、流停滞干等 | 沉默超 3 分钟且满 3 步后附带轻提醒，清单过期或收尾未对齐时提醒顺带更新，流卡住超时主动触发重试，避免带收尾工具结束时正文被折叠 | 默认开启 · `progress-note` / `todo-reminder` / `stream-stall` / `ui-chat` |
@@ -84,14 +85,13 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 本次更新
 
-**`0.2.20` · 对话内全历史查找（`Ctrl+F`）与交互打磨**
+**`0.2.21` · Git Worktree 可视化管理、新对话一键切入与流式文本恢复**
 
-- **默认只搜对话正文，远离工具输出噪声**：在主对话右上栏新增放大镜按钮，Desktop 默认注册 `Ctrl+F` / `Cmd+F`、Web 默认注册 `Ctrl+Alt+F` / `Cmd+Alt+F`（`interceptCtrlFOnWeb` 默认关闭，可按需开启接管 Web `Ctrl+F`）。打开时仅匹配用户提问与助手回复正文，默认不混入思考过程、Bash/工具调用输出、斜杠命令、注入上下文等内部记录。
-- **二级菜单与浮窗右键按需扩搜**：点击查找条筛选按钮，或在浮窗空白/按钮区域右键打开范围菜单，可自由勾选思考过程、工具调用与输出、斜杠命令、注入上下文、压缩摘要、待办列表与轮次错误，或一键切换「仅搜正文 / 全部范围」；非默认范围激活时按钮亮蓝色提示点。
-- **可拖拽浮窗与直观细节**：支持通过左侧把手或浮窗空白处拖动位置并自动限制在视口内（`localStorage` 记忆位置），双击把手一键复位右上角；`Aa` 区分大小写按钮激活后保持蓝底白字；支持 IME 组合输入与分段 `Esc` 关闭（优先关范围菜单再关查找条）并归还焦点。
-- **全历史增量分页、快速跳转与性能防抖**：支持先搜当前窗口、按需向后增量扫描至 `seq 0`（单会话 8 MiB 分页缓存），合并流式增量刷新并自动丢弃已替换窗口的过期分页；跳转更早命中时调用宿主 `loadThrough` 精准加载目标历史、揭示 `until-found` 与折叠内容，不可见时退化为轮次锚点定位与摘录预览卡片。
+- **Git Worktree 树与 Commit 分叉图（`ui-worktree`）**：在右侧栏 Guide、聊天顶栏分支徽章与 Workspace 右键菜单接入 Worktree 视图，宽屏可拖拽缩放 2D 关系图、窄屏显示紧凑树，支持按需切换到 SVG 多泳道 Commit 分叉图；顶栏支持自由输入路径、工作区/最近目录与内置文件夹浏览弹窗，实时追踪会话 `workingDirectory` 与 `dsh-wsl` 路径互转。
+- **可控 Worktree 管理与新对话切换（`ui-worktree-manage`）**：支持派生新建、`Fork` 当前会话、`git worktree prune` 清理与双重门禁安全删除（严禁 `--force`）；在空白新对话窗口右下方提供「当前目录 / 新建 Worktree」切换器（支持选择基准分支与自定义分支名），发送首条消息时自动建树并切入新工作目录，失败时支持原地重试或回退当前目录而不丢失消息。
+- **流式文本恢复与查找优化**：新增 `responses-text-recovery` 在 SSE 终结事件前补齐遗漏的助手文本完成帧；`ui-conversation-find` 支持已渲染文件链接高亮并可跨越行内 Markdown 边界查找。
 
-[查找功能配置 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#配置) · [完整更新记录（含 0.2.19 及更早版本） →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md)
+[完整更新记录（含 0.2.20 及更早版本） →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md) · [Worktree 设计说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/worktree-design.md)
 
 ## 可选：开启调优预设
 
@@ -108,10 +108,11 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 已测版本
 
-**当前版本：`@herenfor/dsh-tune@0.2.20`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
+**当前版本：`@herenfor/dsh-tune@0.2.21`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
 
 | 验证项目 | DSH 版本 | 环境与已验证范围 |
 | --- | --- | --- |
+| Worktree 可视化与管理 / 流式恢复（`0.2.21`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；真实 Git Worktree L1 + 真实 DSH Host / Cordis / `dsh-tools` / `dsh-session` / WebServer HTTP L2、离线打包安装校验与本机 `desktop-wsl` 实测 |
 | 对话内全历史查找（`0.2.20`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4** / **24.22.3**；L1/L2 单测（含真实 `dsh-client-shortcuts` 6 端注册、宿主配置与流式/跳转回归）、离线打包与隔离 Chromium 端到端实测（快捷键、拖拽复位、`Aa` 悬停、范围菜单、全历史扫描与折叠展开） |
 | 自主侧栏预览（`0.2.19`） | **0.2.2-rc.3** | Linux / WSL，Node.js **22.23.4**；L1/L2 契约、启动图与 `dsh-wsl` 镜像校验、离线宿主集成；并在本机 `desktop-wsl` 桥接实测侧栏打开效果 |
 | 压缩修复与升级 | **0.2.2-rc.3** | Linux / WSL，Node.js **24.22.2** / **22.23.4**；压缩、能力回退、并发与旧预设升级回归，另有真实服务端手动对照 |
@@ -120,7 +121,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL，Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
 
 
-**自动检查：192 项，186 通过、6 跳过、0 失败**（传入本机 `DSH_BIN`；未设 `DSH_BIN` 时 185 通过、7 跳过；跳过项为本机未保留的旧版 `rc.2` / `rc.3` 宿主路径，另完成包内 52 文件离线安装与预设解析校验；`0.2.19` 时已同步跑通 `check:collaborative` 与 `check:preset-upgrade`）。
+**自动检查：219 项，212 通过、7 跳过、0 失败**（跳过项为本机未保留的旧版 `rc.2` / `rc.3` 宿主路径或缺少对应环境条目，另完成包内 62 文件离线安装与预设解析校验）。
 
 安装版本范围：**`>=0.2.2-rc.1 <0.3.0-0`**。测试使用交互式 Web profile，浏览器为 Chromium；审批中的 CUA 由测试桩提供，压缩实验通过官方模块与真实模型服务运行。
 

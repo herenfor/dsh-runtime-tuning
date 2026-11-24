@@ -1,5 +1,19 @@
 # 更新记录
 
+## 0.2.21 · 2026-11-24
+
+- 新增 Git Worktree 只读树可视化与一键切换（独立客户端模块 `@herenfor/dsh-tune-worktree` / `runtime-tuning-worktree`）：
+  - **多入口集成与只读隔离**：在右侧栏 Guide 注册「Worktree 树」页签、在主对话顶栏展示当前分支徽章（带未提交提示点）、在左侧 Workspace 右键菜单提供「查看 Worktree 树」；在关闭或未挂载管理模块时保持严格只读，零写盘操作与零写入 RPC。
+  - **两阶段加载与双视图自适应**：先返回工作树骨架（路径、HEAD、分支、锁定/游离/失效标记与关联会话活动状态），再按需并发补充工作区状态与最近提交并推理派生父子边；宽屏/全屏自动切为支持拖拽/缩放的 2D 卡片图，窄屏切为紧凑缩进连线树，顶部可按需切换到 Commit 分叉图（SVG 多泳道 DAG，20/35/50 条）。
+  - **自由选目录与体验打磨**：顶栏支持任意本地/`~`/WSL UNC 路径直达、DSH 工作区切换、最近目录记录与「跟随当前会话」复位，并提供只读内置文件夹浏览弹窗（`list-dirs`，识别 `.git` 仓库与隐藏目录切换，兼容系统原生目录选择器）；补充主次分层、平滑弹窗/悬停/脉冲/骨架屏动画（尊重 `prefers-reduced-motion`），并优先监听实时 `workingDirectory` 投影与 WSL 路径互转。
+- 新增可控 Git Worktree 管理与新对话切换（独立可配模块 `@herenfor/dsh-tune-worktree-manage` / `runtime-tuning-worktree-manage`）：
+  - **受控创建与会话分叉**：支持按可配路径模板（默认 `../<repo>-wt/<slug>`）或自定义目录新建工作树，支持「打开空白会话」「Fork 当前会话上下文」「仅创建目录」三种模式与可选非破坏性顶层 Agent 工具 `create_worktree`。
+  - **双重门禁安全删除与剪枝**：`preflight-remove` / `remove` 强制检查（Git 工作区与暂存区完全干净 + DSH 无活跃运行会话/子代理）且严禁使用 `--force` / `-f`；提供 `prune` 预览与清理。
+  - **新对话 Worktree 切换器**：在绑定本地 Git 仓库的空白新对话窗口右下方提供「当前目录 / 新建 Worktree」切换器（含基准分支选择、可选 `wt/...` 分支名或按首条消息自动生成、路径预览及「立即创建并打开」）；选择自动创建时在首条消息提交后原地建树并切入工作目录（`agent/inbox/inserted` + `agent/pre-step`），失败时在输入栏上方提供「重试创建 / 在当前目录继续」恢复而不丢失消息。
+- 新增 Responses SSE 文本补完修复（`runtime-tuning-responses-text-recovery`）：当 Responses 流式响应在终结事件前缺少已输出文本/拒答项的完成事件时，在到达 `pi-ai` 前自动补齐对应文本项，避免回复末尾丢失。
+- 优化对话内全历史查找（`ui-conversation-find`）：修复已渲染文件链接在对话查找中的高亮展示，并支持跨行内 Markdown 格式边界匹配文本。
+- 验证：在 DSH `0.2.2-rc.5`（Node.js `v22.23.4`）下完成 `219` 项测试（`212` 通过、`7` 跳过、`0` 失败），完成 `62` 文件离线打包安装检查，并在本机 `desktop-wsl` 实测面板、自由选目录与新对话 Worktree 切换流程。
+
 ## 0.2.20 · 2026-11-18
 
 - 新增对话内全历史查找（独立客户端模块 `@herenfor/dsh-tune-conversation-find` / `runtime-tuning-conversation-find`）：

@@ -13,7 +13,7 @@ const npm = (args) => execFileSync('npm', args, { cwd: root, encoding: 'utf8', s
 try {
   const [packed] = JSON.parse(npm(['pack', '--json', '--pack-destination', temp]))
   const names = packed.files.map(f => f.path)
-  for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/tuned-preset.mjs', 'plugins/collaborative-preset.mjs', 'plugins/collaboration-prompt.mjs', 'plugins/tool-discovery.mjs', 'plugins/grep-enhanced.mjs', 'plugins/grep-engine.mjs', 'plugins/host-modules.mjs', 'plugins/log.mjs', 'plugins/sidebar-open.mjs', 'ui-chat/index.mjs', 'ui-sidebar-open/package.json', 'ui-sidebar-open/index.mjs', 'ui-sidebar-open/client.js', 'ui-conversation-find/package.json', 'ui-conversation-find/index.mjs', 'ui-conversation-find/client.js', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
+  for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/tuned-preset.mjs', 'plugins/collaborative-preset.mjs', 'plugins/collaboration-prompt.mjs', 'plugins/tool-discovery.mjs', 'plugins/grep-enhanced.mjs', 'plugins/grep-engine.mjs', 'plugins/host-modules.mjs', 'plugins/log.mjs', 'plugins/responses-text-recovery.mjs', 'plugins/sidebar-open.mjs', 'plugins/worktree-core.mjs', 'plugins/worktree-manage-core.mjs', 'ui-chat/index.mjs', 'ui-sidebar-open/package.json', 'ui-sidebar-open/index.mjs', 'ui-sidebar-open/client.js', 'ui-conversation-find/package.json', 'ui-conversation-find/index.mjs', 'ui-conversation-find/client.js', 'ui-worktree/package.json', 'ui-worktree/index.mjs', 'ui-worktree/client.js', 'ui-worktree-manage/package.json', 'ui-worktree-manage/index.mjs', 'ui-worktree-manage/client.js', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
   for (const name of names) assert.ok(!/^(?:test|scripts|\.git|\.claude)\/|^ui-chat\/(?:assets\/|client.js$|package.json$)|\.tgz$/.test(name), `unexpected package file: ${name}`)
   npm(['install', '--prefix', temp, '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--offline', join(temp, packed.filename)])
   const fromHost = createRequire(join(temp, 'package.json'))
@@ -56,6 +56,12 @@ try {
       const findMod = await import(fromHost.resolve('@herenfor/dsh-tune/ui-conversation-find/index.mjs'))
       assert.equal(typeof findMod.apply, 'function')
       assert.ok(findMod.Config, 'ui-conversation-find Config schema loaded')
+      const wtMod = await import(fromHost.resolve('@herenfor/dsh-tune/ui-worktree/index.mjs'))
+      assert.equal(typeof wtMod.apply, 'function')
+      assert.ok(wtMod.Config, 'ui-worktree Config schema loaded')
+      const wtmMod = await import(fromHost.resolve('@herenfor/dsh-tune/ui-worktree-manage/index.mjs'))
+      assert.equal(typeof wtmMod.apply, 'function')
+      assert.ok(wtmMod.Config, 'ui-worktree-manage Config schema loaded')
       const collaborative = await import(fromHost.resolve('@herenfor/dsh-tune/plugins/collaborative-preset.mjs'))
       const composed = collaborative.buildCollaborativeConfig({}, collaborative.standardComposition())
       for (const id of ['collaboration-prompt', 'tool-discovery', 'tool-use-prompt', 'tool-fs-search']) {

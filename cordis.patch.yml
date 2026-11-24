@@ -24,6 +24,8 @@
       name: ./plugins/net-log.mjs
     - id: runtime-tuning-stream-stall
       name: ./plugins/stream-stall.mjs
+    - id: runtime-tuning-responses-text-recovery
+      name: ./plugins/responses-text-recovery.mjs
     - id: runtime-tuning-todo-reminder
       name: ./plugins/todo-reminder.mjs
     - id: runtime-tuning-progress-note
@@ -36,6 +38,10 @@
       name: ./ui-sidebar-open/index.mjs
     - id: runtime-tuning-conversation-find
       name: ./ui-conversation-find/index.mjs
+    - id: runtime-tuning-worktree
+      name: ./ui-worktree/index.mjs
+    - id: runtime-tuning-worktree-manage
+      name: ./ui-worktree-manage/index.mjs
     - id: runtime-tuning-preset-collaborative
       name: ./plugins/collaborative-preset.mjs
       config:

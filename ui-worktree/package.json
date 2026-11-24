@@ -1,0 +1,28 @@
+{
+  "name": "@herenfor/dsh-tune-worktree",
+  "version": "0.2.21",
+  "private": true,
+  "type": "module",
+  "description": "Read-only Git worktree tree visualization, optional commit fork DAG, and DSH workspace/session switching.",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-context-menu",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  }
+}

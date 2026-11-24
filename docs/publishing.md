@@ -1,6 +1,6 @@
 # 测试版与正式版发布
 
-当前发布版本为 **`0.2.20`**。GitHub Release 分发源码与安装包，npm 分发包；两者分别发布。实测版本与范围集中见 [README](../README.md#已测版本)。
+当前发布版本为 **`0.2.21`**。GitHub Release 分发源码与安装包，npm 分发包；两者分别发布。实测版本与范围集中见 [README](../README.md#已测版本)。
 
 ## 版本与通道
 
@@ -17,9 +17,9 @@
 由所有者在 WSL 仓库根目录执行。先提交并推送代码，让 main 工作区干净且与 origin/main 一致：
 
 ```bash
-scripts/release.sh 0.2.20 --dry-run
+scripts/release.sh 0.2.21 --dry-run
 npm login                        # 登录过期时执行
-scripts/release.sh 0.2.20 --local
+scripts/release.sh 0.2.21 --local
 ```
 
 脚本先跑单元测试和实际打包安装检查，将当前 Beta 发布到 `beta`，保留 `latest`。确认 registry 可查后才创建并推送版本标签；如果 GitHub 发布已创建同一提交的标签，会直接复用。
