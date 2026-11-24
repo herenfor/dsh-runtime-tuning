@@ -11,7 +11,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const temp = mkdtempSync(join(tmpdir(), 'dsh-tune-package-'))
 const npm = (args) => execFileSync('npm', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 try {
-  const [packed] = JSON.parse(npm(['pack', '--json', '--pack-destination', temp]))
+  const packRaw = JSON.parse(npm(['pack', '--json', '--pack-destination', temp]))
+  const packed = Array.isArray(packRaw) ? packRaw[0] : Object.values(packRaw)[0]
   const names = packed.files.map(f => f.path)
   for (const required of ['package.json', 'cordis.patch.yml', 'plugins/tool-use-prompt.mjs', 'plugins/tuned-preset.mjs', 'plugins/collaborative-preset.mjs', 'plugins/collaboration-prompt.mjs', 'plugins/tool-discovery.mjs', 'plugins/grep-enhanced.mjs', 'plugins/grep-engine.mjs', 'plugins/host-modules.mjs', 'plugins/log.mjs', 'plugins/responses-text-recovery.mjs', 'plugins/sidebar-open.mjs', 'plugins/worktree-core.mjs', 'plugins/worktree-manage-core.mjs', 'ui-chat/index.mjs', 'ui-sidebar-open/package.json', 'ui-sidebar-open/index.mjs', 'ui-sidebar-open/client.js', 'ui-conversation-find/package.json', 'ui-conversation-find/index.mjs', 'ui-conversation-find/client.js', 'ui-worktree/package.json', 'ui-worktree/index.mjs', 'ui-worktree/client.js', 'ui-worktree-manage/package.json', 'ui-worktree-manage/index.mjs', 'ui-worktree-manage/client.js', 'README.md', 'LICENSE']) assert.ok(names.includes(required), required)
   for (const name of names) assert.ok(!/^(?:test|scripts|\.git|\.claude)\/|^ui-chat\/(?:assets\/|client.js$|package.json$)|\.tgz$/.test(name), `unexpected package file: ${name}`)

@@ -30,8 +30,8 @@ npm run check:package
 release_tmp=$(mktemp -d)
 trap 'rm -rf -- "$release_tmp"' EXIT
 npm pack --json --pack-destination "$release_tmp" > "$release_tmp/pack.json"
-filename=$(node -p 'require(process.argv[1])[0].filename' "$release_tmp/pack.json")
-integrity=$(node -p 'require(process.argv[1])[0].integrity' "$release_tmp/pack.json")
+filename=$(node -p 'const p=require(process.argv[1]); (Array.isArray(p)?p[0]:Object.values(p)[0]).filename' "$release_tmp/pack.json")
+integrity=$(node -p 'const p=require(process.argv[1]); (Array.isArray(p)?p[0]:Object.values(p)[0]).integrity' "$release_tmp/pack.json")
 registry_url="https://registry.npmjs.org/@herenfor%2fdsh-tune/$version"
 registry_status() { curl --connect-timeout 10 --max-time 30 -sS -o "$release_tmp/registry.json" -w '%{http_code}' "$registry_url"; }
 verify_integrity() {

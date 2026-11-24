@@ -9,7 +9,8 @@ import {findHostPackage} from '../plugins/chat-answer-fix.mjs'
 const hosts=process.argv.slice(2)
 if(!hosts.length) throw new Error('Usage: npm run check:preset-upgrade -- /path/to/dsh [another/dsh]; requires full git history and a Linux/WSL DSH installation')
 const repo=fileURLToPath(new URL('..',import.meta.url)),root=mkdtempSync(join(tmpdir(),'dsh-preset-upgrade-'))
-const [packed]=JSON.parse(execFileSync('npm',['pack','--json','--pack-destination',root],{cwd:repo,encoding:'utf8'}))
+const packRaw=JSON.parse(execFileSync('npm',['pack','--json','--pack-destination',root],{cwd:repo,encoding:'utf8'}))
+const packed=Array.isArray(packRaw)?packRaw[0]:Object.values(packRaw)[0]
 const tarball=join(root,packed.filename)
 const wait=ms=>new Promise(r=>setTimeout(r,ms))
 const results=[]
