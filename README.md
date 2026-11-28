@@ -69,7 +69,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ### 压缩时复用已有缓存
 
-> **说明（`0.2.23` 起默认不开启）**：DSH **`0.2.2-rc.5`** 已在官方 `@deepseek-ai/dsh-compaction-basic` 中修复压缩工具的推理档位与前缀缓存问题，因此从 `0.2.23` 起本包的压缩优化插件（`compaction-effort`）**默认不开启**（`collaborative` 与 `tuned` 默认均直接使用官方压缩器）。如果你仍在使用低于 `0.2.2-rc.5` 的宿主版本，或需要显式覆盖 `summarizationReasoningEffort`，可在 [配置文档](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#上下文压缩推理档位优化compaction-effort) 中按需启用。
+> **说明（默认不开启）**：DSH **`0.2.2-rc.5`** 已在官方 `@deepseek-ai/dsh-compaction-basic` 中修复压缩工具的推理档位与前缀缓存问题，因此从 `0.2.23` 起本包的压缩优化插件（`compaction-effort`）**默认不开启**（`collaborative` 与 `tuned` 默认均直接使用官方压缩器）。如果你仍在使用低于 `0.2.2-rc.5` 的宿主版本，或需要显式覆盖 `summarizationReasoningEffort`，可在 [配置文档](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#上下文压缩推理档位优化compaction-effort) 中按需启用。
 
 直接挂载本插件（启用状态下）的受控手动压缩对照：
 
@@ -87,10 +87,11 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 本次更新
 
-**`0.2.23` · 压缩优化默认关闭（适配 rc5 官方修复）与 `0.2.22` 启动器兼容**
+**`0.2.24` · 修复运行中插件页在线热更新命中旧 ESM 缓存问题（含 `0.2.22`–`0.2.23` 改动）**
 
-- **压缩优化插件（`compaction-effort`）默认不开启**：因 DSH `0.2.2-rc.5` 官方已修复其压缩工具，`cordis.patch.yml` 中的 `tuned` 与 `collaborative` 预设默认均沿用官方 `@deepseek-ai/dsh-compaction-basic`，`resolvePresetConfig` 不再自动改写官方压缩插件名；`< 0.2.2-rc.5` 或需显式覆盖档位的用户可在 `collaborative` 中设 `compactionEffort: true` 或在预设中手动指定 `compaction-effort.mjs`。
-- **兼容 `nanodsh` 等外部启动器与非 pnpm 宿主依赖解析（`0.2.22`）**：`findHostPackage`、`hostImport` / `hostDirectory` 与相关插件优先读取 `ctx.profileContext.installAnchor` / `dir` 与 `DSH_INSTALL_ANCHOR`，补充只导出 `.` 入口的包根回溯与 `@deepseek-ai/dsh` 跳板解析，并保留 `process.argv[1]` 与 `.pnpm` 回退。
+- **兼容同目录在线热更新**：非版本化目录安装（如 `desktop-wsl`）在 DSH 运行中直接更新并重载入口时，内部共享模块（`host-modules.mjs`、`chat-answer-fix.mjs`、`tool-use-prompt.mjs`）附带版本化后缀，避免新增导出 `hostAnchors` 时命中已缓存的旧版 `0.2.21` ESM 模块导致 `approval-info` / `ask-nonblocking` 激活报错。
+- **压缩优化插件默认不开启（`0.2.23`）**：因 DSH `0.2.2-rc.5` 官方已修复其压缩工具，`tuned` 与 `collaborative` 默认均沿用官方 `@deepseek-ai/dsh-compaction-basic`；`< 0.2.2-rc.5` 或需显式覆盖档位时可在 `collaborative` 设 `compactionEffort: true` 或手动指向 `compaction-effort.mjs`。
+- **兼容 `nanodsh` 等外部启动器与非 pnpm 宿主依赖解析（`0.2.22`）**：优先读取 `ctx.profileContext.installAnchor` / `dir` 与 `DSH_INSTALL_ANCHOR`，补充只导出 `.` 入口的包根回溯与 `@deepseek-ai/dsh` 跳板解析，并保留 `process.argv[1]` 与 `.pnpm` 回退。
 
 [完整更新记录（含 0.2.20 及更早版本） →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md) · [Worktree 设计说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/worktree-design.md)
 
@@ -107,11 +108,11 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 已测版本
 
-**当前版本：`@herenfor/dsh-tune@0.2.23`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
+**当前版本：`@herenfor/dsh-tune@0.2.24`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
 
 | 验证项目 | DSH 版本 | 环境与已验证范围 |
 | --- | --- | --- |
-| 默认配置与宿主锚点兼容（`0.2.22` – `0.2.23`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；`compaction-effort` 默认不开启与按需开启切换、外部启动器 `profileContext.installAnchor` / `dir` / wrapper hop / 无 `./package.json` 导出单测、`approval-info.apply` 回归及离线打包安装校验 |
+| 在线热更新 / 默认配置 / 启动器兼容（`0.2.22` – `0.2.24`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；`0.2.21` 缓存模拟同目录带参热更新回归、`compaction-effort` 默认不开启与按需开启切换、外部启动器 `profileContext.installAnchor` / `dir` / wrapper hop / 无 `./package.json` 导出单测、`approval-info.apply` 回归及离线打包安装校验 |
 | Worktree 可视化与管理 / 流式恢复（`0.2.21`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；真实 Git Worktree L1 + 真实 DSH Host / Cordis / `dsh-tools` / `dsh-session` / WebServer HTTP L2、离线打包安装校验与本机 `desktop-wsl` 实测 |
 | 对话内全历史查找（`0.2.20`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4** / **24.22.3**；L1/L2 单测（含真实 `dsh-client-shortcuts` 6 端注册、宿主配置与流式/跳转回归）、离线打包与隔离 Chromium 端到端实测（快捷键、拖拽复位、`Aa` 悬停、范围菜单、全历史扫描与折叠展开） |
 | 自主侧栏预览（`0.2.19`） | **0.2.2-rc.3** | Linux / WSL，Node.js **22.23.4**；L1/L2 契约、启动图与 `dsh-wsl` 镜像校验、离线宿主集成；并在本机 `desktop-wsl` 桥接实测侧栏打开效果 |
@@ -121,7 +122,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL，Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
 
 
-**自动检查：221 项，214 通过、7 跳过、0 失败**（跳过项为本机未保留的旧版 `rc.2` / `rc.3` 宿主路径或缺少对应环境条目，另完成包内 62 文件离线安装与预设解析校验）。
+**自动检查：222 项，215 通过、7 跳过、0 失败**（跳过项为本机未保留的旧版 `rc.2` / `rc.3` 宿主路径或缺少对应环境条目，另完成包内 62 文件离线安装与预设解析校验）。
 
 安装版本范围：**`>=0.2.2-rc.1 <0.3.0-0`**。测试使用交互式 Web profile，浏览器为 Chromium；审批中的 CUA 由测试桩提供，压缩实验通过官方模块与真实模型服务运行。
 

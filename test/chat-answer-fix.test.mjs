@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'chat-answer-fix-'))
 const { chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
@@ -203,4 +204,55 @@ test('findHostPackage 优先使用 profileContext.installAnchor / 目录 / wrapp
     hostAnchors({ get: (k) => (k === 'profileContext' ? { installAnchor: '/g/anchor.json', dir: '/g' } : undefined) }).slice(0, 2),
     ['/g/anchor.json', '/g/package.json'],
   )
+})
+
+test('从已运行的 0.2.21 热更新覆盖文件并带参数重载入口时，不会命中旧 ESM 缓存缺少 hostAnchors 而报错', async () => {
+  const stage = mkdtempSync(join(tmpdir(), 'dsh-tune-hot-reload-'))
+  try {
+    const srcPlugins = fileURLToPath(new URL('../plugins', import.meta.url))
+    const stagePlugins = join(stage, 'plugins')
+    const profileDir = join(stage, 'host')
+    const stageProto = join(profileDir, 'node_modules/@deepseek-ai/dsh-typert-protocol/lib')
+    mkdirSync(stagePlugins, { recursive: true })
+    mkdirSync(stageProto, { recursive: true })
+    for (const file of ['log.mjs', 'approval-contract.mjs', 'chat-presentation.mjs']) {
+      writeFileSync(join(stagePlugins, file), readFileSync(join(srcPlugins, file), 'utf8'))
+    }
+    writeFileSync(join(stagePlugins, 'host-modules.mjs'), 'export const hostDirectory = () => ""; export const hostImport = async () => ({})\n')
+    writeFileSync(join(stagePlugins, 'chat-answer-fix.mjs'), 'export const findHostPackage = () => ""\n')
+    writeFileSync(join(stagePlugins, 'tool-use-prompt.mjs'), 'export const resolvePresetConfig = () => ({ plugins: [{ id: "compaction-basic", name: "stale-0.2.21" }] })\n')
+    await import(pathToFileURL(join(stagePlugins, 'host-modules.mjs')).href)
+    await import(pathToFileURL(join(stagePlugins, 'chat-answer-fix.mjs')).href)
+    await import(pathToFileURL(join(stagePlugins, 'tool-use-prompt.mjs')).href)
+
+    for (const file of ['host-modules.mjs', 'chat-answer-fix.mjs', 'tool-use-prompt.mjs', 'approval-info.mjs', 'ask-nonblocking.mjs']) {
+      writeFileSync(join(stagePlugins, file), readFileSync(join(srcPlugins, file), 'utf8'))
+    }
+    const approvalMod = await import(`${pathToFileURL(join(stagePlugins, 'approval-info.mjs')).href}?reload=1`)
+    const askMod = await import(`${pathToFileURL(join(stagePlugins, 'ask-nonblocking.mjs')).href}?reload=1`)
+    assert.equal(typeof approvalMod.apply, 'function')
+    assert.equal(typeof askMod.apply, 'function')
+
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({ name: 'hot-reload-profile', version: '0.0.0' }))
+    writeFileSync(
+      join(profileDir, 'node_modules/@deepseek-ai/dsh-typert-protocol/package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh-typert-protocol', version: '0.2.2-rc.5', type: 'module', exports: { '.': './lib/index.js' } }),
+    )
+    writeFileSync(
+      join(stageProto, 'index.js'),
+      'export class TypertRemoteService { constructor(ctx, ns) { this.ctx = ctx; this.ns = ns } }\nexport const Remote = () => () => {}\n',
+    )
+    const registered = []
+    await approvalMod.apply({
+      profileContext: { dir: profileDir, installAnchor: join(profileDir, 'package.json') },
+      typert: { register: (contract) => registered.push(contract) },
+      on: () => {},
+      effect: () => () => {},
+      inject: () => () => {},
+    })
+    assert.equal(registered.length, 1)
+    assert.equal(registered[0].invocations[0].service, 'runtimeTuningApproval')
+  } finally {
+    rmSync(stage, { recursive: true, force: true })
+  }
 })

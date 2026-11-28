@@ -1,4 +1,4 @@
-import { hostImport } from '../plugins/host-modules.mjs'
+import { hostImport } from '../plugins/host-modules.mjs?v=0.2.24'
 
 const { default: z } = await hostImport('schemastery')
 

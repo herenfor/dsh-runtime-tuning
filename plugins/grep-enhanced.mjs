@@ -1,4 +1,4 @@
-import { hostImport } from './host-modules.mjs'
+import { hostImport } from './host-modules.mjs?v=0.2.24'
 import { parseEnhancedArgs, enhancedCommand, parseSearchOutput, matchingFragments, retainSearch } from './grep-engine.mjs'
 const official = await hostImport('dsh-tool-fs-search')
 const { defineTool, ToolArgsError } = await hostImport('dsh-tools')

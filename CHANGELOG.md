@@ -1,5 +1,12 @@
 # 更新记录
 
+## 0.2.24 · 2026-11-27
+
+- 修复在 DSH 插件页（如 `desktop-wsl`）在线更新已运行中的插件时，由于插件目录为无版本号目录且共享模块已由旧版 ESM 缓存，导致新增导出 `hostAnchors` 的入口（`approval-info.mjs`、`ask-nonblocking.mjs` 等）抛出 `SyntaxError: The requested module './host-modules.mjs' does not provide an export named 'hostAnchors'` 的问题：
+  - 将内部跨越热更新边界的共享辅助导入（`host-modules.mjs`、`chat-answer-fix.mjs`、`tool-use-prompt.mjs`）统一升级为带 `?v=0.2.24` 版本的相对 ESM specifier，确保在同进程热重载时绕开旧版 `0.2.21` 缓存并立即加载新实现；同时在 `host-modules.mjs` 与 `tool-use-prompt.mjs` 清理 `import.meta.url` 派生路径上的查询参数。
+  - 新增从已缓存 `0.2.21` 模块目录覆盖更新并带查询参数重载入口的回归测试。
+- 验证：在 DSH `0.2.2-rc.5`（Node.js `v22.23.4`）下完成 `222` 项测试（`215` 通过、`7` 跳过、`0` 失败），并通过 `62` 文件离线打包安装检查。
+
 ## 0.2.23 · 2026-11-27
 
 - 调整默认配置，**默认不开启**上下文压缩优化插件（`compaction-effort`），并在 `README.md` 与配置文档中补充说明：DSH `0.2.2-rc.5` 官方已修复其压缩工具的推理档位与前缀缓存问题。

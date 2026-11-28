@@ -1,9 +1,9 @@
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { findHostPackage } from './chat-answer-fix.mjs'
+import { findHostPackage } from './chat-answer-fix.mjs?v=0.2.24'
 
-const SELF_ANCHOR = fileURLToPath(import.meta.url)
+const SELF_ANCHOR = fileURLToPath(new URL('./host-modules.mjs', import.meta.url))
 
 /** Read optional Cordis `profileContext` service without adding a hard inject requirement. */
 export function readProfileContext(ctx) {

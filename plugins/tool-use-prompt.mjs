@@ -27,7 +27,7 @@ export function apply(ctx) {
 // be the pre-npm name. Use this installed module's URL instead of its package name.
 export function resolvePresetConfig(
   config,
-  moduleUrl = import.meta.url,
+  moduleUrl = new URL('./tool-use-prompt.mjs', import.meta.url).href,
   compactionUrl = new URL('./compaction-effort.mjs', moduleUrl).href,
 ) {
   const promptNames = new Set([

@@ -5,8 +5,8 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { findHostPackage } from './chat-answer-fix.mjs'
-import { hostAnchors, hostImport } from './host-modules.mjs'
+import { findHostPackage } from './chat-answer-fix.mjs?v=0.2.24'
+import { hostAnchors, hostImport } from './host-modules.mjs?v=0.2.24'
 import { createRecorder } from './log.mjs'
 import {
   APPROVAL_POST_REWRITE_MISMATCH_CODE,

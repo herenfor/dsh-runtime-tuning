@@ -1,6 +1,6 @@
 {
   "name": "@herenfor/dsh-tune-sidebar-open",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "private": true,
   "type": "module",
   "description": "Autonomous right-sidebar file and URL preview module for DSH.",

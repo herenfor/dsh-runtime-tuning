@@ -6,7 +6,7 @@
 import { readdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { hostAnchors, hostImport } from './host-modules.mjs'
+import { hostAnchors, hostImport } from './host-modules.mjs?v=0.2.24'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-runtime-tuning-ask-nonblocking'

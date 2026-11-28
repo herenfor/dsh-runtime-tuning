@@ -1,4 +1,4 @@
-import { hostImport } from '../plugins/host-modules.mjs'
+import { hostImport } from '../plugins/host-modules.mjs?v=0.2.24'
 import { createRecorder } from '../plugins/log.mjs'
 import {
   SIDEBAR_OPEN_PROMPT,

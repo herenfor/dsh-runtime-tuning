@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { hostImport } from './host-modules.mjs'
+import { hostImport } from './host-modules.mjs?v=0.2.24'
 import { createRecorder } from './log.mjs'
 
 export const name = 'tool-discovery'

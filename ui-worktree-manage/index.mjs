@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { hostImport } from '../plugins/host-modules.mjs'
+import { hostImport } from '../plugins/host-modules.mjs?v=0.2.24'
 import { createRecorder } from '../plugins/log.mjs'
 import { createWorktreeHttpHandler } from '../plugins/worktree-core.mjs'
 import {

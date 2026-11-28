@@ -2,7 +2,7 @@
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { createRecorder } from '../plugins/log.mjs'
-import { prepareChatFix } from '../plugins/chat-answer-fix.mjs'
+import { prepareChatFix } from '../plugins/chat-answer-fix.mjs?v=0.2.24'
 
 const fix = prepareChatFix()
 if (fix.officialIndex === undefined) throw new Error(`dsh-runtime-tuning chat-answer-fix: ${fix.error}`)

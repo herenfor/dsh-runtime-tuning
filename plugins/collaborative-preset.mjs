@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { hostDirectory, hostImport } from './host-modules.mjs'
-import { resolvePresetConfig } from './tool-use-prompt.mjs'
+import { hostDirectory, hostImport } from './host-modules.mjs?v=0.2.24'
+import { resolvePresetConfig } from './tool-use-prompt.mjs?v=0.2.24'
 
 const { default: OfficialPreset } = await hostImport('dsh-agent-preset')
 const { default: z } = await hostImport('schemastery')

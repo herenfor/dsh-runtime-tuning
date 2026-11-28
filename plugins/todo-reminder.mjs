@@ -11,7 +11,7 @@
 // 只管顶层会话（子代理的最后一步要交回父会话）。界面只把最后一步当回答，所以要 chat-answer-fix 的收尾补丁生效时才开（auto）。
 // DSH 重启后内存里的清单丢失，下一次 todo_write 之前不会提醒。
 import { randomUUID } from 'node:crypto'
-import { chatFixActive, prepareChatFix } from './chat-answer-fix.mjs'
+import { chatFixActive, prepareChatFix } from './chat-answer-fix.mjs?v=0.2.24'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-runtime-tuning-todo-reminder'

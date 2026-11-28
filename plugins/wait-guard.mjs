@@ -28,7 +28,7 @@
 // 封顶依赖“到点转后台”；如果被封顶的命令到点被杀（promoteOnTimeout 关掉了），就停用封顶。
 import { randomUUID } from 'node:crypto'
 import { recordParameterRewrite } from './approval-contract.mjs'
-import { chatFixActive, prepareChatFix } from './chat-answer-fix.mjs'
+import { chatFixActive, prepareChatFix } from './chat-answer-fix.mjs?v=0.2.24'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-wait-guard'
