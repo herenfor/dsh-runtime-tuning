@@ -6,6 +6,7 @@ import { join } from 'node:path'
 
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'chat-answer-fix-'))
 const { chatFixActive, findHostPackage, generate, patchClient } = await import('../plugins/chat-answer-fix.mjs')
+const { hostAnchors } = await import('../plugins/host-modules.mjs')
 const { patchPresentation } = await import('../plugins/chat-presentation.mjs')
 const { resolveConclude } = await import('../plugins/wait-guard.mjs')
 
@@ -163,4 +164,43 @@ test('替身真的在用才算：补丁打上、官方那行停用、我们这�
   assert.equal(chatFixActive([row('ui-chat', false), row('runtime-tuning-ui-chat', true)], true), false)  // 用户按文档关掉了
   assert.equal(chatFixActive([row('ui-chat', false), row('runtime-tuning-ui-chat', false)], true), false)  // 两行都开着
   assert.equal(chatFixActive(undefined, true), false)
+})
+
+test('findHostPackage 优先使用 profileContext.installAnchor / 目录 / wrapper 依赖，兼容 nanodsh 等外部启动器', () => {
+  const noFs = { realpathSync: (p) => p, existsSync: () => false, readdirSync: () => [] }
+  const installAnchor = '/profiles/web/package.json'
+  const protocolPkg = '/profiles/web/node_modules/@deepseek-ai/dsh-typert-protocol/package.json'
+  const nanodshBin = '/opt/nanodsh/bin/nanodsh'
+  const resolveAnchorFirst = (from, req) => {
+    if (from === installAnchor && req === '@deepseek-ai/dsh-typert-protocol/package.json') return protocolPkg
+    throw new Error('MODULE_NOT_FOUND')
+  }
+  assert.equal(
+    findHostPackage([installAnchor, nanodshBin], 'dsh-typert-protocol', noFs, resolveAnchorFirst),
+    '/profiles/web/node_modules/@deepseek-ai/dsh-typert-protocol',
+  )
+  assert.equal(
+    findHostPackage('/profiles/web', 'dsh-typert-protocol', noFs, resolveAnchorFirst),
+    '/profiles/web/node_modules/@deepseek-ai/dsh-typert-protocol',
+  )
+
+  const dshEntryPkg = '/opt/nanodsh/node_modules/@deepseek-ai/dsh/package.json'
+  const resolveViaWrapper = (from, req) => {
+    if (from === nanodshBin && req === '@deepseek-ai/dsh/package.json') return dshEntryPkg
+    if (from === dshEntryPkg && req === '@deepseek-ai/dsh-typert-protocol/package.json') return protocolPkg
+    throw new Error('MODULE_NOT_FOUND')
+  }
+  assert.equal(
+    findHostPackage(nanodshBin, 'dsh-typert-protocol', noFs, resolveViaWrapper),
+    '/profiles/web/node_modules/@deepseek-ai/dsh-typert-protocol',
+  )
+
+  assert.deepEqual(
+    hostAnchors({ profileContext: { installAnchor: '/p/anchor.json', dir: '/p' } }).slice(0, 2),
+    ['/p/anchor.json', '/p/package.json'],
+  )
+  assert.deepEqual(
+    hostAnchors({ get: (k) => (k === 'profileContext' ? { installAnchor: '/g/anchor.json', dir: '/g' } : undefined) }).slice(0, 2),
+    ['/g/anchor.json', '/g/package.json'],
+  )
 })

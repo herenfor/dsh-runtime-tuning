@@ -112,7 +112,7 @@ export async function apply(ctx, config = {}) {
   const mode = config.mode ?? 'auto'
   if (!['auto', 'on', 'off'].includes(mode)) throw new Error('tool-discovery mode must be auto, on, or off')
   let modules
-  try { modules = await Promise.all([hostImport('dsh-tools'), hostImport('dsh-tool-executor-native'), hostImport('dsh-session')]) }
+  try { modules = await Promise.all([hostImport('dsh-tools', ctx), hostImport('dsh-tool-executor-native', ctx), hostImport('dsh-session', ctx)]) }
   catch (error) { record({ event: 'unsupported-host', fallback: 'full-native-tools', error: String(error).slice(0, 200) }); return }
   const [{ defineTool, ToolArgsError }, { NativeToolExecutor }, { appendPluginRecord }] = modules
   if (typeof defineTool !== 'function' || typeof ToolArgsError !== 'function' || typeof NativeToolExecutor !== 'function' || typeof appendPluginRecord !== 'function' || typeof ctx.tools.setExecutor !== 'function' || typeof ctx.systemPrompt.context !== 'function') {

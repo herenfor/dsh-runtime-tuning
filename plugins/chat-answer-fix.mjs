@@ -9,7 +9,7 @@
 // 找不到要改的那一行（官方改了实现），就原样复制官方文件，效果和没装一样。
 import { cpSync, rmSync, existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRecorder } from './log.mjs'
 import { patchPresentation } from './chat-presentation.mjs'
@@ -45,13 +45,14 @@ export function patchClient(source) {
   return { text: closing.text, patched: answer.done, settings: settings.done, closing: closing.done }
 }
 
-const nodeResolve = (from, request) => createRequire(from).resolve(request)
+const nodeResolve = (from, request) => {
+  const anchor = !/\.(?:mjs|cjs|js|ts|json)$/i.test(from) && !from.endsWith('/') && existsSync(join(from, 'package.json'))
+    ? join(from, 'package.json')
+    : from
+  return createRequire(anchor).resolve(request)
+}
 
-/** 正在运行的 dsh 用的那一份官方包：先按 Node 的模块解析从 dsh 入口找（npm、pnpm 等安装方式都适用），
- *  再找 dsh 旁边的链接，最后在 pnpm 仓库里找（多份时取与 dsh 同版本的）。 */
-export function findHostPackage(entryScript, pkg, fs = { realpathSync, readdirSync, existsSync }, resolve = nodeResolve) {
-  const bin = fs.realpathSync(entryScript)
-  try { return dirname(fs.realpathSync(resolve(bin, `@deepseek-ai/${pkg}/package.json`))) } catch {}
+function searchPnpmAndSiblings(bin, pkg, fs) {
   const scope = '/node_modules/@deepseek-ai/'
   const own = bin.lastIndexOf(scope)
   if (own >= 0) {
@@ -67,6 +68,66 @@ export function findHostPackage(entryScript, pkg, fs = { realpathSync, readdirSy
   if (dirs.length > 1 && version !== undefined) dirs = dirs.filter((n) => n.startsWith(`@deepseek-ai+${pkg}@${version}_`) || n === `@deepseek-ai+${pkg}@${version}`)
   if (dirs.length !== 1) throw new Error(`expected one ${pkg} in the host store, found ${dirs.length}`)
   return join(store, dirs[0], 'node_modules/@deepseek-ai', pkg)
+}
+
+function resolvePackageDir(from, requestPkg, fs, resolve) {
+  const pkgName = `@deepseek-ai/${requestPkg}`
+  try {
+    return dirname(fs.realpathSync(resolve(from, `${pkgName}/package.json`)))
+  } catch {}
+  try {
+    let dir = dirname(fs.realpathSync(resolve(from, pkgName)))
+    for (let depth = 0; depth < 6; depth += 1) {
+      if (basename(dir) === 'node_modules') break
+      if (fs.existsSync(join(dir, 'package.json')) || basename(dir) === requestPkg) {
+        return fs.realpathSync(dir)
+      }
+      const parent = dirname(dir)
+      if (parent === dir) break
+      dir = parent
+    }
+  } catch {}
+  return undefined
+}
+
+function findHostPackageFromAnchor(entryScript, pkg, fs, resolve) {
+  const bin = fs.realpathSync(entryScript)
+  const fromCandidates = !/\.(?:mjs|cjs|js|ts|json)$/i.test(bin) && !bin.endsWith('/')
+    ? [bin, join(bin, 'package.json')]
+    : [bin]
+  for (const from of fromCandidates) {
+    const direct = resolvePackageDir(from, pkg, fs, resolve)
+    if (direct) return direct
+    for (const hop of ['dsh', 'dsh-base', 'dsh-web-app']) {
+      if (hop === pkg) continue
+      const hopDir = resolvePackageDir(from, hop, fs, resolve)
+      if (!hopDir) continue
+      const hopManifest = join(hopDir, 'package.json')
+      const viaHop = resolvePackageDir(hopManifest, pkg, fs, resolve)
+      if (viaHop) return viaHop
+      try { return searchPnpmAndSiblings(hopManifest, pkg, fs) } catch {}
+    }
+  }
+  return searchPnpmAndSiblings(bin, pkg, fs)
+}
+
+/** 正在运行的 dsh 用的那一份官方包：支持多个候选锚点（如 profileContext.installAnchor、
+ *  profileContext.dir、process.argv[1]），按 Node 模块解析（含经由 dsh 包装 CLI 中转）、
+ *  同级链接与 pnpm 仓库依次定位。 */
+export function findHostPackage(entryOrAnchors, pkg, fs = { realpathSync, readdirSync, existsSync }, resolve = nodeResolve) {
+  const anchors = [...new Set((Array.isArray(entryOrAnchors) ? entryOrAnchors : [entryOrAnchors]).filter((x) => typeof x === 'string' && x.length > 0))]
+  if (anchors.length === 0) {
+    throw new Error(`cannot locate host package ${pkg}; no entry script or install anchor provided`)
+  }
+  let lastError
+  for (const anchor of anchors) {
+    try {
+      return findHostPackageFromAnchor(anchor, pkg, fs, resolve)
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError
 }
 
 const entryOf = (exp, fallback) => (typeof exp === 'string' ? exp : exp?.default ?? exp?.import ?? fallback)
@@ -105,10 +166,10 @@ export function generate(officialDir, outDir = UI_DIR) {
 
 let prepared
 /** 每个进程只生成一次；wait-guard 也用它判断回答会不会被折叠。 */
-export function prepareChatFix(entryScript = process.argv[1]) {
+export function prepareChatFix(entryOrAnchors = [process.env.DSH_INSTALL_ANCHOR, process.argv[1], fileURLToPath(import.meta.url)]) {
   if (prepared === undefined) {
     try {
-      prepared = generate(findHostPackage(entryScript, 'dsh-client-ui-chat'))
+      prepared = generate(findHostPackage(entryOrAnchors, 'dsh-client-ui-chat'))
       record({ event: prepared.patched ? 'patched' : 'unpatched', settings: prepared.settings, closing: prepared.closing, tables: prepared.tables, approval: prepared.approval, assets: prepared.assets, version: prepared.version })
     } catch (error) {
       prepared = { patched: false, error: String(error).slice(0, 300) }

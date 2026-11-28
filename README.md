@@ -85,11 +85,10 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 本次更新
 
-**`0.2.21` · Git Worktree 可视化管理、新对话一键切入与流式文本恢复**
+**`0.2.22` · 兼容 `nanodsh` 等外部启动器与非 pnpm 宿主依赖解析**
 
-- **Git Worktree 树与 Commit 分叉图（`ui-worktree`）**：在右侧栏 Guide、聊天顶栏分支徽章与 Workspace 右键菜单接入 Worktree 视图，宽屏可拖拽缩放 2D 关系图、窄屏显示紧凑树，支持按需切换到 SVG 多泳道 Commit 分叉图；顶栏支持自由输入路径、工作区/最近目录与内置文件夹浏览弹窗，实时追踪会话 `workingDirectory` 与 `dsh-wsl` 路径互转。
-- **可控 Worktree 管理与新对话切换（`ui-worktree-manage`）**：支持派生新建、`Fork` 当前会话、`git worktree prune` 清理与双重门禁安全删除（严禁 `--force`）；在空白新对话窗口右下方提供「当前目录 / 新建 Worktree」切换器（支持选择基准分支与自定义分支名），发送首条消息时自动建树并切入新工作目录，失败时支持原地重试或回退当前目录而不丢失消息。
-- **流式文本恢复与查找优化**：新增 `responses-text-recovery` 在 SSE 终结事件前补齐遗漏的助手文本完成帧；`ui-conversation-find` 支持已渲染文件链接高亮并可跨越行内 Markdown 边界查找。
+- **优先使用实例安装锚点解析宿主依赖**：`findHostPackage`、`hostImport` / `hostDirectory` 与 `approval-info`、`tool-discovery`、`ask-nonblocking`、`tuned-preset`、`compaction-effort` 等模块改为优先读取 `ctx.profileContext.installAnchor` / `dir` 与 `DSH_INSTALL_ANCHOR`，并补充仅导出 `.` 入口的包根回溯以及经 `@deepseek-ai/dsh` / `dsh-base` / `dsh-web-app` 的依赖跳板，再保留 `process.argv[1]` 与 `.pnpm` 仓库回退；解决使用 `nanodsh` 或自定义布局启动 Web profile 时 `runtime-tuning-approval-info` 找不到 `dsh-typert-protocol` 导致接口未注册的问题。
+- **`0.2.21` 主要能力沿用**：继续包含 `ui-worktree` 只读树 / Commit 分叉图、`ui-worktree-manage` 可控建删与新对话切换器、`responses-text-recovery` 与 `ui-conversation-find` 文件链接高亮。
 
 [完整更新记录（含 0.2.20 及更早版本） →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md) · [Worktree 设计说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/worktree-design.md)
 
@@ -108,10 +107,11 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 已测版本
 
-**当前版本：`@herenfor/dsh-tune@0.2.21`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
+**当前版本：`@herenfor/dsh-tune@0.2.22`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
 
 | 验证项目 | DSH 版本 | 环境与已验证范围 |
 | --- | --- | --- |
+| 宿主锚点与启动器兼容（`0.2.22`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；`profileContext.installAnchor` / `dir` / wrapper hop / 无 `./package.json` 导出单测与 `approval-info.apply`（`nanodsh` `argv[1]` 模拟）回归及离线打包安装校验 |
 | Worktree 可视化与管理 / 流式恢复（`0.2.21`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；真实 Git Worktree L1 + 真实 DSH Host / Cordis / `dsh-tools` / `dsh-session` / WebServer HTTP L2、离线打包安装校验与本机 `desktop-wsl` 实测 |
 | 对话内全历史查找（`0.2.20`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4** / **24.22.3**；L1/L2 单测（含真实 `dsh-client-shortcuts` 6 端注册、宿主配置与流式/跳转回归）、离线打包与隔离 Chromium 端到端实测（快捷键、拖拽复位、`Aa` 悬停、范围菜单、全历史扫描与折叠展开） |
 | 自主侧栏预览（`0.2.19`） | **0.2.2-rc.3** | Linux / WSL，Node.js **22.23.4**；L1/L2 契约、启动图与 `dsh-wsl` 镜像校验、离线宿主集成；并在本机 `desktop-wsl` 桥接实测侧栏打开效果 |
@@ -121,7 +121,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | 历史真实 Web 会话 | **0.2.2-rc.1、0.2.2-rc.2** | Windows / WSL，Node.js **22.23.4**；历史 Web 功能、调优预设和显示设置验证 |
 
 
-**自动检查：219 项，212 通过、7 跳过、0 失败**（跳过项为本机未保留的旧版 `rc.2` / `rc.3` 宿主路径或缺少对应环境条目，另完成包内 62 文件离线安装与预设解析校验）。
+**自动检查：221 项，214 通过、7 跳过、0 失败**（跳过项为本机未保留的旧版 `rc.2` / `rc.3` 宿主路径或缺少对应环境条目，另完成包内 62 文件离线安装与预设解析校验）。
 
 安装版本范围：**`>=0.2.2-rc.1 <0.3.0-0`**。测试使用交互式 Web profile，浏览器为 Chromium；审批中的 CUA 由测试桩提供，压缩实验通过官方模块与真实模型服务运行。
 

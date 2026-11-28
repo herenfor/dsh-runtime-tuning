@@ -1,6 +1,6 @@
 {
   "name": "@herenfor/dsh-tune-conversation-find",
-  "version": "0.2.21",
+  "version": "0.2.22",
   "private": true,
   "type": "module",
   "description": "In-conversation full-history find bar (Ctrl+F / Cmd+F) for DSH Desktop and Web.",

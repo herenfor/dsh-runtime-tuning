@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { findHostPackage } from './chat-answer-fix.mjs'
+import { hostAnchors, hostImport } from './host-modules.mjs'
 import { createRecorder } from './log.mjs'
 import {
   APPROVAL_POST_REWRITE_MISMATCH_CODE,
@@ -50,9 +51,9 @@ class FallbackHarnessError extends Error {
   }
 }
 
-async function resolveHarnessErrorClass(entryScript = process.argv[1]) {
+async function resolveHarnessErrorClass(entryOrAnchors = process.argv[1]) {
   try {
-    const dir = findHostPackage(entryScript, 'dsh-error')
+    const dir = findHostPackage(entryOrAnchors, 'dsh-error')
     const mod = await import(pathToFileURL(join(dir, 'lib/index.js')).href)
     if (typeof mod.HarnessError === 'function') return mod.HarnessError
   } catch {}
@@ -782,10 +783,11 @@ export async function mountApprovalHooks(ctx, { snapshots = new ApprovalSnapshot
 
 export async function apply(ctx) {
   const snapshots = new ApprovalSnapshots()
-  const HarnessErrorClass = await resolveHarnessErrorClass()
+  const anchors = hostAnchors(ctx)
+  const HarnessErrorClass = await resolveHarnessErrorClass(anchors)
 
   if (ctx.typert && typeof ctx.typert.register === 'function') {
-    const protocol = await import(pathToFileURL(join(findHostPackage(process.argv[1], 'dsh-typert-protocol'), 'lib/index.js')).href)
+    const protocol = await hostImport('dsh-typert-protocol', anchors)
     class ApprovalInfo extends protocol.TypertRemoteService {
       constructor(scope) { super(scope, 'runtimeTuningApproval') }
       read(request) { return snapshots.read(request) }

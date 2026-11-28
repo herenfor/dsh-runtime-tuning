@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   ApprovalSnapshots,
   apply,
@@ -799,3 +802,44 @@ for (const [label, bin] of [
     assert.equal(ptcRunCount, 2, 'tampered prepared run_code must not execute body')
   })
 }
+
+test('apply resolves dsh-typert-protocol from ctx.profileContext.installAnchor even when argv[1] is a wrapper CLI', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'approval-info-anchor-'))
+  const prevArgv1 = process.argv[1]
+  try {
+    const profileDir = join(root, 'web-profile')
+    const protoDir = join(profileDir, 'node_modules/@deepseek-ai/dsh-typert-protocol/lib')
+    mkdirSync(protoDir, { recursive: true })
+    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({ name: 'web-profile', version: '0.0.0' }))
+    writeFileSync(
+      join(profileDir, 'node_modules/@deepseek-ai/dsh-typert-protocol/package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh-typert-protocol', version: '0.2.2-rc.5', type: 'module', exports: { '.': './lib/index.js' } }),
+    )
+    writeFileSync(
+      join(protoDir, 'index.js'),
+      [
+        'export class TypertRemoteService { constructor(ctx, namespace) { this.ctx = ctx; this.namespace = namespace } }',
+        'export const Remote = () => () => {}',
+      ].join('\n'),
+    )
+
+    process.argv[1] = join(root, 'nanodsh/bin/nanodsh')
+    const registered = []
+    const ctx = {
+      profileContext: { dir: profileDir, installAnchor: join(profileDir, 'package.json') },
+      typert: { register: (contract) => registered.push(contract) },
+      on: () => {},
+      effect: () => () => {},
+      inject: () => () => {},
+    }
+
+    await apply(ctx)
+    assert.equal(registered.length, 1)
+    assert.equal(registered[0].invocations[0].id, '@herenfor/dsh-tune/approval-info/read')
+    assert.equal(registered[0].invocations[0].service, 'runtimeTuningApproval')
+    assert.equal(registered[0].invocations[0].method, 'read')
+  } finally {
+    process.argv[1] = prevArgv1
+    rmSync(root, { recursive: true, force: true })
+  }
+})

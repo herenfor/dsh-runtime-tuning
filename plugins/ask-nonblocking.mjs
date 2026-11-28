@@ -6,6 +6,7 @@
 import { readdir, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { hostAnchors, hostImport } from './host-modules.mjs'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-runtime-tuning-ask-nonblocking'
@@ -16,19 +17,28 @@ const PACKAGE_DIR = '@deepseek-ai+dsh-tool-ask-user@'
 
 /** 找官方 dsh-tool-ask-user 的入口，要和 preset 加载的是同一份。 */
 export async function findOfficialAskUser(entryScript, read = readdir, resolve = realpath) {
-  const bin = await resolve(entryScript)
-  // 先找正在运行的 dsh 旁边链接的那一份：升级以后 store 里会同时留着新旧两个版本。
-  const scope = '/node_modules/@deepseek-ai/'
-  const own = bin.lastIndexOf(scope)
-  if (own >= 0) {
-    try { return join(await resolve(bin.slice(0, own + scope.length) + 'dsh-tool-ask-user'), 'lib/index.js') } catch {}
+  const entries = Array.isArray(entryScript) ? entryScript.filter(Boolean) : [entryScript]
+  let lastError
+  for (const entry of entries) {
+    try {
+      const bin = await resolve(entry)
+      // 先找正在运行的 dsh 旁边链接的那一份：升级以后 store 里会同时留着新旧两个版本。
+      const scope = '/node_modules/@deepseek-ai/'
+      const own = bin.lastIndexOf(scope)
+      if (own >= 0) {
+        try { return join(await resolve(bin.slice(0, own + scope.length) + 'dsh-tool-ask-user'), 'lib/index.js') } catch {}
+      }
+      const at = bin.indexOf('/.pnpm/')
+      if (at < 0) throw new Error('host is not a pnpm install; cannot locate dsh-tool-ask-user')
+      const store = bin.slice(0, at + '/.pnpm'.length)
+      const dirs = (await read(store)).filter((n) => n.startsWith(PACKAGE_DIR))
+      if (dirs.length !== 1) throw new Error(`expected one dsh-tool-ask-user in the host store, found ${dirs.length}`)
+      return join(store, dirs[0], 'node_modules/@deepseek-ai/dsh-tool-ask-user/lib/index.js')
+    } catch (error) {
+      lastError = error
+    }
   }
-  const at = bin.indexOf('/.pnpm/')
-  if (at < 0) throw new Error('host is not a pnpm install; cannot locate dsh-tool-ask-user')
-  const store = bin.slice(0, at + '/.pnpm'.length)
-  const dirs = (await read(store)).filter((n) => n.startsWith(PACKAGE_DIR))
-  if (dirs.length !== 1) throw new Error(`expected one dsh-tool-ask-user in the host store, found ${dirs.length}`)
-  return join(store, dirs[0], 'node_modules/@deepseek-ai/dsh-tool-ask-user/lib/index.js')
+  throw lastError ?? new Error('host is not a pnpm install; cannot locate dsh-tool-ask-user')
 }
 
 /** 只处理顶层 agent：子代理不直接面对用户。 */
@@ -40,7 +50,13 @@ export function apply(ctx, config = {}) {
   const c = { ...DEFAULTS, ...config }
   record({ event: 'loaded', config: c })
   let official
-  const load = () => (official ??= findOfficialAskUser(process.argv[1]).then((file) => import(pathToFileURL(file).href)))
+  const load = () => (official ??= (async () => {
+    try {
+      return await hostImport('dsh-tool-ask-user', ctx)
+    } catch {
+      return import(pathToFileURL(await findOfficialAskUser(hostAnchors(ctx))).href)
+    }
+  })())
   ctx.on('agent/created', async ({ agent }) => {
     if (!isTopLevelAgent(agent)) return
     try {

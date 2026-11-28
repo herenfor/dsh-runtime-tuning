@@ -9,6 +9,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { findHostPackage } from './chat-answer-fix.mjs'
+import { hostAnchors } from './host-modules.mjs'
 import { createRecorder } from './log.mjs'
 
 export const name = 'dsh-runtime-tuning-compaction-effort'
@@ -425,7 +426,7 @@ export async function loadOfficialCompaction(entryScript = process.argv[1], deps
 let hostEngineClass
 let hostLoadError
 try {
-  const host = await loadOfficialCompaction()
+  const host = await loadOfficialCompaction(hostAnchors())
   hostEngineClass = createCompactionEffortEngine(host.Engine, host.z)
 } catch (error) {
   hostLoadError = error

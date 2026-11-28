@@ -1,5 +1,13 @@
 # 更新记录
 
+## 0.2.22 · 2026-11-27
+
+- 修复 `approval-info` 等插件在外部启动器（如 `nanodsh`）或非 pnpm 扁平/自定义 profile 布局下加载宿主依赖失败的问题（`Error: host is not a pnpm install; cannot locate dsh-typert-protocol`）：
+  - `findHostPackage` 与 `hostImport` / `hostDirectory` 改为支持多锚点与上下文感知解析（`hostAnchors(ctx)`），按优先级依次尝试 `ctx.profileContext.installAnchor`、`ctx.profileContext.dir`、`DSH_INSTALL_ANCHOR`、`process.argv[1]` 以及当前插件安装锚点。
+  - 在直接 `createRequire(...).resolve('@deepseek-ai/<pkg>/package.json')` 之外，增加仅导出主入口 `.` 时的包根回溯定位，以及经 `@deepseek-ai/dsh` / `dsh-base` / `dsh-web-app` 依赖跳板查找真实 DSH 实例包的能力，最后保留同级链接与 `.pnpm` store 回退以兼容旧环境与官方启动器。
+  - 统一更新 `approval-info`（`dsh-typert-protocol`、`dsh-error`）、`tool-discovery`（`dsh-tools`、`dsh-tool-executor-native`、`dsh-session`）、`ask-nonblocking`（`dsh-tool-ask-user`）、`tuned-preset`、`compaction-effort` 与共享 `host-modules` / `chat-answer-fix` 解析链路。
+- 验证：在 DSH `0.2.2-rc.5`（Node.js `v22.23.4`）下完成 `221` 项测试（`214` 通过、`7` 跳过、`0` 失败），含模拟 `nanodsh`（`process.argv[1]` 指向外部 CLI、`profileContext.installAnchor` 指向 Web profile，且 `dsh-typert-protocol` 仅导出 `.`）的 `approval-info.apply` 回归测试，并通过 `62` 文件离线打包安装检查。
+
 ## 0.2.21 · 2026-11-24
 
 - 新增 Git Worktree 只读树可视化与一键切换（独立客户端模块 `@herenfor/dsh-tune-worktree` / `runtime-tuning-worktree`）：
