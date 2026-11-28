@@ -23,9 +23,13 @@ export function buildCollaborativeConfig(config, official) {
   const source = config.plugins?.length ? config.plugins : official.plugins
   const adapted = resolvePresetConfig({ plugins: source }).plugins
   const ownSearch = row => row.name === new URL('./grep-enhanced.mjs', import.meta.url).href || /\/(?:dsh-tune|dsh-runtime-tuning)\/plugins\/grep-enhanced\.mjs$/.test(row.name)
-  const plugins = adapted.map(row => {
+  const ownCompaction = row => row.name === new URL('./compaction-effort.mjs', import.meta.url).href || /\/(?:dsh-tune|dsh-runtime-tuning)\/plugins\/compaction-effort\.mjs$/.test(row.name)
+  const adaptRow = row => {
     if (row.id === 'tool-fs-search' && (row.name === '@deepseek-ai/dsh-tool-fs-search' || ownSearch(row))) {
       return { ...row, name: config.enhancedGrep !== false ? new URL('./grep-enhanced.mjs', import.meta.url).href : '@deepseek-ai/dsh-tool-fs-search' }
+    }
+    if (row.id === 'compaction-basic' && (row.name === '@deepseek-ai/dsh-compaction-basic' || ownCompaction(row))) {
+      return { ...row, name: config.compactionEffort === true ? new URL('./compaction-effort.mjs', import.meta.url).href : '@deepseek-ai/dsh-compaction-basic' }
     }
     if (row.id === 'skill-filesystem') {
       if (!config.skillDirs?.length) return row // Preserve every official declaration and expression.
@@ -33,8 +37,12 @@ export function buildCollaborativeConfig(config, official) {
       if (declared !== undefined && !Array.isArray(declared)) throw new Error('Additional skillDirs require an array-valued customSkillDirs declaration')
       return { ...row, config: { ...row.config, customSkillDirs: [...(declared ?? []), ...config.skillDirs] } }
     }
+    if (row.group === true && Array.isArray(row.config)) {
+      return { ...row, config: row.config.map(adaptRow) }
+    }
     return row
-  })
+  }
+  const plugins = adapted.map(adaptRow)
   const own = [
     ['collaboration-prompt', './collaboration-prompt.mjs', undefined],
     ['tool-use-prompt', './tool-use-prompt.mjs', undefined],
@@ -59,6 +67,7 @@ export default class CollaborativePreset extends OfficialPreset {
     description: z.string(), order: z.number().default(2),
     toolDiscovery: z.union(['auto', 'on', 'off']).default('auto'),
     enhancedGrep: z.boolean().default(true),
+    compactionEffort: z.boolean().default(false),
     skillDirs: z.array(z.string()).default([]), plugins: z.array(z.any()).default([]),
   })
   constructor(ctx, config) {

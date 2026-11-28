@@ -1,6 +1,6 @@
 {
   "name": "@herenfor/dsh-tune-worktree-manage",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "private": true,
   "type": "module",
   "description": "Phase 2 Git worktree management: create/fork worktrees, optional create_worktree agent tool, and dual-gated remove/prune.",

@@ -248,17 +248,19 @@ DSH 的模型几乎只在最后才写正文，干活时不说话：近期 17 个
 
 如需停用前端对话查找模块，可在 profile 的 `cordis.patch.yml` 中添加 `- id: runtime-tuning-conversation-find` 与 `disabled: true`。
 
-### 上下文压缩推理档位修复（`compaction-effort`）
+### 上下文压缩推理档位优化（`compaction-effort`）
 
-- **挂载位置**：在 `cordis.patch.yml` 的 `调优（tuned）` 预设（`runtime-tuning-preset-tuned`）的隔离 `compaction` 组内，将 `compaction-basic` 指向 `@herenfor/dsh-tune/plugins/compaction-effort.mjs`（同时在 `plugins/tool-use-prompt.mjs` 的预设解析中把该行以及既有定制的 `@deepseek-ai/dsh-compaction-basic` 自动映射到同一实现；第三方的自定义压缩插件名保留不变）。
-- **默认行为**：
+- **默认状态**：**默认不开启。** DSH `0.2.2-rc.5` 已在官方 `@deepseek-ai/dsh-compaction-basic` 中修复压缩工具的推理档位与缓存相关问题，因此本包在默认 `cordis.patch.yml`（含 `tuned`）以及 `collaborative` 预设中均直接使用官方 `@deepseek-ai/dsh-compaction-basic`，不再默认替换为 `compaction-effort.mjs`。若你仍在使用低于 `0.2.2-rc.5` 的宿主版本或希望显式覆盖摘要推理档位，可按下面方式按需开启。
+- **按需启用方式**：
+  - **`collaborative` 预设**：在 `runtime-tuning-preset-collaborative` 的 `config` 中设置 `compactionEffort: true`。
+  - **`tuned` 预设 / 自定义预设**：在预设配置的隔离 `compaction` 组内，将 `compaction-basic` 指向 `@herenfor/dsh-tune/plugins/compaction-effort.mjs`（`plugins/tool-use-prompt.mjs` 会保留并正确重定位已显式配置或旧会话中的该引用；官方 `standard` / `ptc` / `cordis` / `minimal` 默认保持未修改）。
+- **启用后的行为**：
   - 主对话与摘要目标同属同一 `(provider, model)` 且模型元数据包含该档位时，单次 `summarize` 调用作用域内继承主对话最新 `request/header` 的有效 `reasoningEffort`（例如主对话为 `max` 时摘要请求也发 `max`，以保持复用已有前缀缓存的配置条件；主对话为 `high` 或仅依赖 adapter/模型默认档位时同理保留对应有效值）。
   - 若配置了独立的 `summarizationProvider` / `summarizationModel`（与主对话不同），保留摘要目标模型自身的配置与默认值，不强塞主对话的 `reasoningEffort`。
-- **可选配置项**（写在 `compaction-basic` 的 `config` 或 `modelPolicies[]` 条目内）：
-  - `inheritReasoningEffort`（布尔，默认 `true`）：设为 `false` 可关闭隐式继承，回退官方默认行为。
+- **可选配置项**（写在启用 `compaction-effort` 后的 `compaction-basic` 的 `config` 或 `modelPolicies[]` 条目内）：
+  - `inheritReasoningEffort`（布尔，启用本模块后默认 `true`）：设为 `false` 可在不改预设名称的前提下回退官方默认行为。
   - `summarizationReasoningEffort`（字符串，可选）：显式指定摘要请求使用的 `reasoningEffort`，优先级高于隐式继承（对同模型和独立模型均生效；若目标模型不支持则会按模型能力校验丢弃并透传官方行为）。
-- **其他预设 / 独立挂载**：官方 `standard` / `ptc` / `cordis` / `minimal` 默认保持未修改；若自定义预设或非预设单实例部署也需要该修复，可在其配置中将 `compaction-basic` 指向 `@herenfor/dsh-tune/plugins/compaction-effort.mjs`。
-- **升级、兼容与禁用回退**：通过 `findHostPackage` 动态定位运行中 DSH 的 `@deepseek-ai/dsh-compaction-basic` 并派生其 `BasicCompactionEngine`；若上游接口变更导致 `summarize` 不匹配，插件会记录降级事件并回退到原始实现。实测版本与范围集中记录在 [README](../README.md#已测版本)。由于既有 `tuned` 会话会持久化 `agent-preset/selected: "tuned"`，直接禁用 `runtime-tuning-preset-tuned` 或卸载插件包会使尚未切换预设的既有会话触发 `Unknown agent preset: tuned`。若要在保持既有 `tuned` 会话可恢复的前提下恢复官方压缩行为，请保留 `tuned` 并设置 `inheritReasoningEffort: false`（并移除顶层及逐模型的显式 `summarizationReasoningEffort` 和 `inheritReasoningEffort: true` 覆盖）；如需彻底禁用 `tuned` 预设或卸载插件包，须先迁移既有 `tuned` 会话的预设绑定。
+- **升级、兼容与禁用回退**：通过 `findHostPackage` 动态定位运行中 DSH 的 `@deepseek-ai/dsh-compaction-basic` 并派生其 `BasicCompactionEngine`；若上游接口变更导致 `summarize` 不匹配，插件会记录降级事件并回退到原始实现。实测版本与范围集中记录在 [README](../README.md#已测版本)。由于既有 `tuned` 会话会持久化 `agent-preset/selected: "tuned"`，直接禁用 `runtime-tuning-preset-tuned` 或卸载插件包会使尚未切换预设的既有会话触发 `Unknown agent preset: tuned`。若要在保持既有 `tuned` 会话可恢复的前提下停用本模块行为，可保留 `tuned` 并将 `compaction-basic` 设为 `@deepseek-ai/dsh-compaction-basic`（或设置 `inheritReasoningEffort: false` 并清除显式覆盖）；如需彻底禁用 `tuned` 预设或卸载插件包，须先迁移既有 `tuned` 会话的预设绑定。
 
 ## 配合 dsh-sentinel
 

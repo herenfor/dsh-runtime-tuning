@@ -1,5 +1,13 @@
 # 更新记录
 
+## 0.2.23 · 2026-11-27
+
+- 调整默认配置，**默认不开启**上下文压缩优化插件（`compaction-effort`），并在 `README.md` 与配置文档中补充说明：DSH `0.2.2-rc.5` 官方已修复其压缩工具的推理档位与前缀缓存问题。
+  - [cordis.patch.yml](cordis.patch.yml) 中的 `tuned` 预设与 [collaborative-preset.mjs](plugins/collaborative-preset.mjs) 默认直接使用官方 `@deepseek-ai/dsh-compaction-basic`。
+  - [tool-use-prompt.mjs](plugins/tool-use-prompt.mjs) 的 `resolvePresetConfig` 不再自动将官方 `@deepseek-ai/dsh-compaction-basic` 改写为 `compaction-effort.mjs`，仅保留并重定位用户显式引用或历史会话中的 `compaction-effort.mjs`。
+  - 为 `< 0.2.2-rc.5` 或需显式覆盖档位的场景保留按需开关：`collaborative` 支持配置 `compactionEffort: true`，`tuned` / 自定义预设可将 `compaction-basic` 指向 `@herenfor/dsh-tune/plugins/compaction-effort.mjs`。
+- 验证：在 DSH `0.2.2-rc.5`（Node.js `v22.23.4`）下完成 `221` 项测试（`214` 通过、`7` 跳过、`0` 失败），并通过 `62` 文件离线打包安装检查。
+
 ## 0.2.22 · 2026-11-27
 
 - 修复 `approval-info` 等插件在外部启动器（如 `nanodsh`）或非 pnpm 扁平/自定义 profile 布局下加载宿主依赖失败的问题（`Error: host is not a pnpm install; cannot locate dsh-typert-protocol`）：

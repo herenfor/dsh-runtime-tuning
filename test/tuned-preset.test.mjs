@@ -72,8 +72,9 @@ test('L2：预设引用的官方包在本机 DSH 里都存在（含子路径导�
   }
 })
 
-test('调优预设默认关闭（会话绑定预设，用的人自己打开）', () => {
+test('调优预设默认关闭（会话绑定预设，用的人自己打开），且默认沿用官方 compaction-basic', () => {
   assert.match(tuned, /^- id: runtime-tuning-preset-tuned\n      name: \.\/plugins\/tuned-preset\.mjs\n      disabled: true\n/)
+  assert.match(tuned, /- id: compaction-basic\n(?:[ \t]+#[^\n]*\n)*[ \t]+name: '@deepseek-ai\/dsh-compaction-basic'\n/)
 })
 
 // 手写的预设不会跟着官方变：本机 DSH 的 standard 一改，这里就报出来，按报出的差异手动更新 cordis.patch.yml。

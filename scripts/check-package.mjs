@@ -31,8 +31,9 @@ try {
   // Import the installed prompt module, then verify its runtime self-reference stays inside this installation.
   const module = await import(fromHost.resolve(prompt))
   assert.equal(typeof module.apply, 'function')
-  const [, compaction] = /name: '(@herenfor\/dsh-tune\/plugins\/compaction-effort.mjs)'/.exec(patch) ?? []
-  assert.ok(compaction, 'preset uses the published compaction-effort module')
+  // compaction-effort is opt-in by default (DSH >=0.2.2-rc.5 fixed upstream), so verify the shipped module directly.
+  assert.ok(!patch.includes('@herenfor/dsh-tune/plugins/compaction-effort.mjs') || /@deepseek-ai\/dsh-compaction-basic/.test(patch))
+  const compaction = '@herenfor/dsh-tune/plugins/compaction-effort.mjs'
   assert.ok(fromHost.resolve(compaction).startsWith(installed))
   const compactionMod = await import(fromHost.resolve(compaction))
   assert.equal(typeof compactionMod.createCompactionEffortEngine, 'function')

@@ -37,7 +37,6 @@ export function resolvePresetConfig(
   const compactionNames = new Set([
     '@herenfor/dsh-tune/plugins/compaction-effort.mjs',
     'dsh-runtime-tuning/plugins/compaction-effort.mjs',
-    '@deepseek-ai/dsh-compaction-basic',
   ])
   const mapRow = (row) => {
     let next = row

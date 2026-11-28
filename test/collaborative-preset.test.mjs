@@ -29,13 +29,17 @@ test('the collaborative preset retains every official standard row, group isolat
     for (const row of expected) {
       const next = actual.find(candidate => candidate.id === row.id)
       assert.ok(next, row.id)
-      if (['skill-filesystem', 'tool-fs-search', 'compaction-basic'].includes(row.id)) continue
+      if (['skill-filesystem', 'tool-fs-search'].includes(row.id)) continue
       if (row.group) { assert.deepEqual(next.isolate, row.isolate); continue }
       assert.deepEqual(next, row, row.id)
     }
     assert.deepEqual(actual.find(r => r.id === 'skill-filesystem'), expected.find(r => r.id === 'skill-filesystem'), 'official skill expressions retain their original declaration base URL')
     assert.match(actual.find(r => r.id === 'tool-fs-search').name, /grep-enhanced\.mjs$/)
-    assert.match(actual.find(r => r.id === 'compaction-basic').name, /compaction-effort\.mjs$/)
+    assert.equal(actual.find(r => r.id === 'compaction-basic').name, '@deepseek-ai/dsh-compaction-basic', 'compaction-effort stays disabled by default (rc.5 fixed upstream)')
+    const optedIn = buildCollaborativeConfig({ compactionEffort: true }, official)
+    const optedInFlat = flatten(optedIn.plugins)
+    assert.match(optedInFlat.find(r => r.id === 'compaction-basic').name, /compaction-effort\.mjs$/)
+    assert.equal(flatten(buildCollaborativeConfig({ plugins: optedIn.plugins, compactionEffort: false }, official).plugins).find(r => r.id === 'compaction-basic').name, '@deepseek-ai/dsh-compaction-basic')
     assert.equal(JSON.stringify(official.plugins), before, 'never mutate the original composition')
     assert.deepEqual(buildCollaborativeConfig({ enhancedGrep: false }, official).plugins.find(r => r.id === 'tool-fs-search'), official.plugins.find(r => r.id === 'tool-fs-search'))
     const custom = buildCollaborativeConfig({ plugins: [{ id: 'tool-fs-search', name: 'custom-search' }, { id: 'skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem', config: { customSkillDirs: ['/custom/skills'] } }] }, official)

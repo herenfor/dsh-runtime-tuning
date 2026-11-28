@@ -16,7 +16,7 @@ DeepSeek Harness 运行调优插件 · `@herenfor/dsh-tune`
 
 让 DeepSeek Harness 更适合真实工程与长程任务：审批卡精简清晰、提问和等待不再卡死进程、长任务自动提醒进展与收尾、模型可在右侧栏自主打开网页或文件供即时预览、对话内支持 `Ctrl+F` 全历史正文查找、提供 Git Worktree 树可视化与安全管理，并提供「协作」与「调优」两个可选预设。
 
-> **生效范围说明**：常规增强（审批、等待、提问、进展提醒、表格与回答修复、凭据保护、`open_sidebar` 侧栏预览、对话内查找、Git Worktree 可视化与管理、Responses 流式文本补完）**安装即自动生效**，无需切换预设；`collaborative`（「协作」）可在新建会话时按需选用，`tuned`（「调优」）默认关闭，需在配置启用。
+> **生效范围说明**：常规增强（审批、等待、提问、进展提醒、表格与回答修复、凭据保护、`open_sidebar` 侧栏预览、对话内查找、Git Worktree 可视化与管理、Responses 流式文本补完）**安装即自动生效**，无需切换预设；`collaborative`（「协作」）可在新建会话时按需选用，`tuned`（「调优」）默认关闭；**压缩优化插件（`compaction-effort`）因 DSH `0.2.2-rc.5` 官方已修复压缩工具而默认不开启**（仅在 `< 0.2.2-rc.5` 或需显式覆盖时按配置启用）。
 
 <a id="快速开始"></a>
 
@@ -51,7 +51,7 @@ dsh plugin --profile web add @herenfor/dsh-tune
 | **聊天表格与文件兼容** | 宽表挤压正文，直接 `edit` 未读/陈旧文件或后缀错标的图易失败 | 表格随实际消息列宽自适应滚动并保留完整数值；`edit` 自动对齐当前文件版本，`read_image` 按文件头真实格式嗅探读取 | 默认开启 · `ui-chat` / `fs-view` |
 | **凭据三层防护** | 沙箱默认可读宿主文件，对话或输出易意外带出令牌 | 拦截索要或直接传入明文令牌的调用；对沙箱及 `read` / `write` / `edit` / `grep` / `open_sidebar` 遮蔽常见云、仓库与 DSH 凭据目录；工具结果中的密钥自动打码 | 默认开启 · `secret-guard` / `secret-files` |
 | **「协作」预设** | 缺目标承接与延迟发现，复杂检索模式有限 | 基于完整 `standard` 构建，保留内置技能、计划、goal、定时、工作流与子代理；补充协作规范、`tool_search` 低频能力按需发现，以及增强版 `grep`（上下文/排除/跨行/计数） | 新建会话可选 · `collaborative`（[详情](docs/collaborative-preset.md)） |
-| **「调优」预设与缓存修复** | 日常编码很少用到定时/工作流工具；压缩摘要未沿用推理档位导致同模型前缀缓存失效 | 去掉定时、goal、计划、工作流与 `subagent_fork`，保留思考深度；手动/自动/溢出压缩继承同模型有效 `reasoningEffort`，降低非缓存输入费用 | 需配置启用 · `tuned` / `compaction-effort` |
+| **「调优」预设与压缩优化** | 日常编码很少用到定时/工作流工具；DSH `< 0.2.2-rc.5` 压缩摘要未沿用推理档位导致同模型前缀缓存失效 | `tuned` 去掉定时、goal、计划、工作流与 `subagent_fork` 并保留思考深度；**`0.2.2-rc.5` 官方已修复压缩工具，因此本包的压缩优化插件（`compaction-effort`）默认不开启**，低于 `rc.5` 或需显式覆盖时可手动启用 | 默认不开启（需配置启用） · `tuned` / `compaction-effort` |
 
 所有模块均可按 id 独立开关或调整参数。[配置项、默认值与逐项说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#配置)
 
@@ -69,7 +69,9 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ### 压缩时复用已有缓存
 
-直接挂载本插件的受控手动压缩对照：
+> **说明（`0.2.23` 起默认不开启）**：DSH **`0.2.2-rc.5`** 已在官方 `@deepseek-ai/dsh-compaction-basic` 中修复压缩工具的推理档位与前缀缓存问题，因此从 `0.2.23` 起本包的压缩优化插件（`compaction-effort`）**默认不开启**（`collaborative` 与 `tuned` 默认均直接使用官方压缩器）。如果你仍在使用低于 `0.2.2-rc.5` 的宿主版本，或需要显式覆盖 `summarizationReasoningEffort`，可在 [配置文档](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#上下文压缩推理档位优化compaction-effort) 中按需启用。
+
+直接挂载本插件（启用状态下）的受控手动压缩对照：
 
 | 指标 | 官方默认摘要 | 开启修复 |
 | --- | ---: | ---: |
@@ -85,10 +87,10 @@ dsh plugin --profile web add @herenfor/dsh-tune
 
 ## 本次更新
 
-**`0.2.22` · 兼容 `nanodsh` 等外部启动器与非 pnpm 宿主依赖解析**
+**`0.2.23` · 压缩优化默认关闭（适配 rc5 官方修复）与 `0.2.22` 启动器兼容**
 
-- **优先使用实例安装锚点解析宿主依赖**：`findHostPackage`、`hostImport` / `hostDirectory` 与 `approval-info`、`tool-discovery`、`ask-nonblocking`、`tuned-preset`、`compaction-effort` 等模块改为优先读取 `ctx.profileContext.installAnchor` / `dir` 与 `DSH_INSTALL_ANCHOR`，并补充仅导出 `.` 入口的包根回溯以及经 `@deepseek-ai/dsh` / `dsh-base` / `dsh-web-app` 的依赖跳板，再保留 `process.argv[1]` 与 `.pnpm` 仓库回退；解决使用 `nanodsh` 或自定义布局启动 Web profile 时 `runtime-tuning-approval-info` 找不到 `dsh-typert-protocol` 导致接口未注册的问题。
-- **`0.2.21` 主要能力沿用**：继续包含 `ui-worktree` 只读树 / Commit 分叉图、`ui-worktree-manage` 可控建删与新对话切换器、`responses-text-recovery` 与 `ui-conversation-find` 文件链接高亮。
+- **压缩优化插件（`compaction-effort`）默认不开启**：因 DSH `0.2.2-rc.5` 官方已修复其压缩工具，`cordis.patch.yml` 中的 `tuned` 与 `collaborative` 预设默认均沿用官方 `@deepseek-ai/dsh-compaction-basic`，`resolvePresetConfig` 不再自动改写官方压缩插件名；`< 0.2.2-rc.5` 或需显式覆盖档位的用户可在 `collaborative` 中设 `compactionEffort: true` 或在预设中手动指定 `compaction-effort.mjs`。
+- **兼容 `nanodsh` 等外部启动器与非 pnpm 宿主依赖解析（`0.2.22`）**：`findHostPackage`、`hostImport` / `hostDirectory` 与相关插件优先读取 `ctx.profileContext.installAnchor` / `dir` 与 `DSH_INSTALL_ANCHOR`，补充只导出 `.` 入口的包根回溯与 `@deepseek-ai/dsh` 跳板解析，并保留 `process.argv[1]` 与 `.pnpm` 回退。
 
 [完整更新记录（含 0.2.20 及更早版本） →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/CHANGELOG.md) · [Worktree 设计说明 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/worktree-design.md)
 
@@ -101,17 +103,15 @@ dsh plugin --profile web add @herenfor/dsh-tune
   disabled: false
 ```
 
-然后在会话中选择「调优」。常规插件安装后即可使用；现有会话继续沿用各自记录的预设，`tuned` 会话也保持原有绑定。
-
-如只想关闭压缩档位继承，请**保留 `tuned`**，在其 `compaction-basic` 配置中设 `inheritReasoningEffort: false`，清除显式 `summarizationReasoningEffort` 和逐模型继承覆盖。直接禁用整个预设或卸载插件前，应先迁移仍绑定它的会话。[详细配置与回退 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#上下文压缩推理档位修复compaction-effort)
+然后在会话中选择「调优」。`tuned` 与 `collaborative` 默认直接使用官方 `@deepseek-ai/dsh-compaction-basic`；如需在低于 `0.2.2-rc.5` 的宿主上开启压缩优化插件，可在 `collaborative` 配置中添加 `compactionEffort: true`，或在自定义/调优预设中将 `compaction-basic` 指向 `@herenfor/dsh-tune/plugins/compaction-effort.mjs`。若之后想停用并保持既有会话可恢复，请保留对应预设并还原为 `@deepseek-ai/dsh-compaction-basic`（或设 `compactionEffort: false` / `inheritReasoningEffort: false`）。[详细配置与回退 →](https://github.com/herenfor/dsh-runtime-tuning/blob/main/docs/configuration.md#上下文压缩推理档位优化compaction-effort)
 
 ## 已测版本
 
-**当前版本：`@herenfor/dsh-tune@0.2.22`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
+**当前版本：`@herenfor/dsh-tune@0.2.23`。** npm 徽章显示 registry 当前已发布版本；安装前可在 [npm 版本页](https://www.npmjs.com/package/@herenfor/dsh-tune?activeTab=versions)核对。
 
 | 验证项目 | DSH 版本 | 环境与已验证范围 |
 | --- | --- | --- |
-| 宿主锚点与启动器兼容（`0.2.22`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；`profileContext.installAnchor` / `dir` / wrapper hop / 无 `./package.json` 导出单测与 `approval-info.apply`（`nanodsh` `argv[1]` 模拟）回归及离线打包安装校验 |
+| 默认配置与宿主锚点兼容（`0.2.22` – `0.2.23`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；`compaction-effort` 默认不开启与按需开启切换、外部启动器 `profileContext.installAnchor` / `dir` / wrapper hop / 无 `./package.json` 导出单测、`approval-info.apply` 回归及离线打包安装校验 |
 | Worktree 可视化与管理 / 流式恢复（`0.2.21`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4**；真实 Git Worktree L1 + 真实 DSH Host / Cordis / `dsh-tools` / `dsh-session` / WebServer HTTP L2、离线打包安装校验与本机 `desktop-wsl` 实测 |
 | 对话内全历史查找（`0.2.20`） | **0.2.2-rc.5** | Linux / WSL，Node.js **22.23.4** / **24.22.3**；L1/L2 单测（含真实 `dsh-client-shortcuts` 6 端注册、宿主配置与流式/跳转回归）、离线打包与隔离 Chromium 端到端实测（快捷键、拖拽复位、`Aa` 悬停、范围菜单、全历史扫描与折叠展开） |
 | 自主侧栏预览（`0.2.19`） | **0.2.2-rc.3** | Linux / WSL，Node.js **22.23.4**；L1/L2 契约、启动图与 `dsh-wsl` 镜像校验、离线宿主集成；并在本机 `desktop-wsl` 桥接实测侧栏打开效果 |

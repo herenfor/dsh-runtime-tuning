@@ -436,7 +436,7 @@ test('resolvePresetConfig maps nested compaction-basic in tuned preset while pre
   assert.equal(patched.plugins[1].config[0].name, 'file:///pkg/plugins/compaction-effort.mjs')
   assert.deepEqual(patched.plugins[1].config[0].config, { thresholdRatio: 0.7 })
 
-  // Legacy dsh-runtime-tuning alias and pre-fix @deepseek-ai/dsh-compaction-basic customizations upgrade seamlessly
+  // Legacy dsh-runtime-tuning alias upgrades cleanly, while official @deepseek-ai/dsh-compaction-basic stays default untouched
   const legacyCustom = resolvePresetConfig({
     id: 'tuned',
     plugins: [{
@@ -444,12 +444,23 @@ test('resolvePresetConfig maps nested compaction-basic in tuned preset while pre
       name: 'cordis:group',
       group: true,
       config: [
-        { id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic', disabled: false, config: { summarizationProvider: 'alt', summarizationModel: 'fast', maxTokens: 2048 } },
+        { id: 'compaction-basic', name: 'dsh-runtime-tuning/plugins/compaction-effort.mjs', disabled: false, config: { summarizationProvider: 'alt', summarizationModel: 'fast', maxTokens: 2048 } },
       ],
     }],
   }, 'file:///pkg/plugins/tool-use-prompt.mjs')
   assert.equal(legacyCustom.plugins[0].config[0].name, 'file:///pkg/plugins/compaction-effort.mjs')
   assert.equal(legacyCustom.plugins[0].config[0].config.summarizationProvider, 'alt')
+
+  const officialDefault = resolvePresetConfig({
+    id: 'tuned',
+    plugins: [{
+      id: 'compaction',
+      name: 'cordis:group',
+      group: true,
+      config: [{ id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic' }],
+    }],
+  }, 'file:///pkg/plugins/tool-use-prompt.mjs')
+  assert.equal(officialDefault.plugins[0].config[0].name, '@deepseek-ai/dsh-compaction-basic')
 
   // Third-party custom compaction plugin is preserved untouched
   const custom = resolvePresetConfig({

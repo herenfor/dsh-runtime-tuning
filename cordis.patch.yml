@@ -103,7 +103,9 @@
               toolResultPruner: true
             config:
               - id: compaction-basic
-                name: '@herenfor/dsh-tune/plugins/compaction-effort.mjs'
+                # DSH 0.2.2-rc.5 已修复官方压缩器的 reasoningEffort 处理；默认使用官方插件不开启本包压缩优化。
+                # 若使用早于 rc.5 的版本需要沿用同模型推理档位或显式覆盖，可改为 '@herenfor/dsh-tune/plugins/compaction-effort.mjs'。
+                name: '@deepseek-ai/dsh-compaction-basic'
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner

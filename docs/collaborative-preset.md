@@ -16,7 +16,7 @@
 
 ## 保留哪些能力
 
-协作预设从当前宿主自带的完整 standard 构建，保留官方工具组合、计划模式、goal、定时任务、工作流、子代理和内置技能。另加入协作规则、已有工具批处理规则、压缩 effort 修复、工具发现与 grep 增强。
+协作预设从当前宿主自带的完整 standard 构建，保留官方工具组合、计划模式、goal、定时任务、工作流、子代理和内置技能。另加入协作规则、已有工具批处理规则、工具发现与 grep 增强；因 DSH `0.2.2-rc.5` 已修复官方压缩工具，压缩 `compactionEffort` 默认关闭（沿用官方压缩器），低于 `rc.5` 的宿主可按下方配置开启。
 
 原有全局优化继续作用于会话，包括审批、等待保护、进展与清单提醒。默认预设与已有会话绑定由原配置决定。
 
@@ -58,6 +58,7 @@ read、grep、glob、编辑、shell、必要的任务控制和用户沟通入口
     name: 协作
     toolDiscovery: auto
     enhancedGrep: true
+    compactionEffort: false
 ```
 
 | 配置 | 含义 |
@@ -66,6 +67,7 @@ read、grep、glob、编辑、shell、必要的任务控制和用户沟通入口
 | `toolDiscovery: on` | 在支持工具追加的路线启用延迟发现 |
 | `toolDiscovery: off` | 完整工具直接提供，仍可查询工具目录 |
 | `enhancedGrep: false` | 回到官方搜索组合 |
+| `compactionEffort: true` | 为 `< 0.2.2-rc.5` 等旧宿主开启压缩推理档位优化（默认 `false`，rc5+ 使用官方修复版） |
 
 以上配置在重启后的新 agent 中使用。关闭发现或 grep 增强时，`collaborative` 身份继续保留，因此已有协作会话仍能继续。不要通过删除整个预设来关闭某项功能。
 

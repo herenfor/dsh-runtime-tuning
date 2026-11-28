@@ -1,6 +1,6 @@
 {
   "name": "@herenfor/dsh-tune-worktree",
-  "version": "0.2.22",
+  "version": "0.2.23",
   "private": true,
   "type": "module",
   "description": "Read-only Git worktree tree visualization, optional commit fork DAG, and DSH workspace/session switching.",
